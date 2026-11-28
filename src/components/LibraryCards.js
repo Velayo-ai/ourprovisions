@@ -163,24 +163,25 @@ function LibraryMeta({ meal, variant = "grid", onSetType }) {
 // round button in sand with a check (tapping UN-PLANS, fixed aria copy),
 // toBuy / ready → inert text. Behaviour is Meal Library v1 + un-plan, unchanged.
 // ONE ADD (SPEC_results_feeder_standard R5; flag on): one add control and one "it's on there" mark across both
-// feeders. Not on the board → the same circle +. On the board (planned, to buy, ready) → the teal ✓ circle and
-// one line, "This week"; readiness stays as information on a second line ("To buy" / "Ready"), never as the add
-// state. The ✓ of a PLANNED meal is still its one step back (tap un-plans); to buy / ready are inert, as before.
-function OneAddMark({ stage, busy, onUnplan, meal }) {
+// feeders, matching the List feeder's row. Not on the board → the outlined circle +. On the board (planned, to
+// buy, ready) → a teal subtitle under the meal's name, "This week" (OnBoardLine), and on the right the teal ✓
+// alone. Readiness stays as information after it ("This week · To buy"), never as the add state. The ✓ of a
+// PLANNED meal is still its one step back (tap un-plans); to buy / ready are inert, as before.
+function OnBoardLine({ stage, canPlan }) {
+  if (!ONE_ADD_ENABLED || !canPlan || stage === "none") return null;
   const ready = stage === "ready" ? "Ready" : stage === "toBuy" ? "To buy" : null;
+  return <span className="lib-onsub">This week{ready && <span className="lib-onsub-ready"> · {ready}</span>}</span>;
+}
+function OneAddMark({ stage, busy, onUnplan, meal }) {
   return (
-    <span className="lib-on">
-      <span className="lib-on-text">
-        <span className="lib-on-line">This week</span>
-        {ready && <span className="lib-on-sub">{ready}</span>}
-      </span>
+    <>
       {stage === "planned" ? (
         <button type="button" className="lib-plan on" disabled={busy} aria-labelledby="lib-verb-unplan"
           onClick={() => { if (!busy) onUnplan(meal.id); }}><CheckGlyph /></button>
       ) : (
         <span className="lib-plan on" aria-hidden="true"><CheckGlyph /></span>
       )}
-    </span>
+    </>
   );
 }
 function LibraryAction({ meal, stage, busy, canPlan, onPlan, onUnplan }) {
@@ -261,6 +262,7 @@ function LibraryRow({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onSe
         onClick={() => onOpen(meal)}
       >
         <span id={`meal-name-${meal.id}`} className="lib-rname">{displayTitle(meal.name)}</span>
+        <OnBoardLine stage={stage} canPlan={canPlan} />
       </button>
       <span className="lib-rmeta"><LibraryMeta meal={meal} variant="list" onSetType={onSetType} /></span>
       <LibraryAction meal={meal} stage={stage} busy={busy} canPlan={canPlan} onPlan={onPlan} onUnplan={onUnplan} />
@@ -279,7 +281,13 @@ function LibraryCard({ meal, stage, busy, canPlan, onPlan, onUnplan, onOpen, onS
         onClick={() => onOpen(meal)}
       >
         <LibrarySlot meal={meal} chip={readyChip} />
-        <span id={`meal-name-${meal.id}`} className="lib-gname">{displayTitle(meal.name)}</span>
+        {ONE_ADD_ENABLED ? (
+          // One add: the title row holds the name and, under it, the teal "This week" (the subgrid keeps two rows).
+          <span className="lib-gtitle">
+            <span id={`meal-name-${meal.id}`} className="lib-gname">{displayTitle(meal.name)}</span>
+            <OnBoardLine stage={stage} canPlan={canPlan} />
+          </span>
+        ) : <span id={`meal-name-${meal.id}`} className="lib-gname">{displayTitle(meal.name)}</span>}
       </button>
       <div className="lib-gstrip">
         <span className="lib-gmeta"><LibraryMeta meal={meal} variant="grid" onSetType={onSetType} /></span>

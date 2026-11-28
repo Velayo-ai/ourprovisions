@@ -146,7 +146,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   if (name) touched.add(name);
   await tapRow(name); await sleep(1500);
   const row = await rowState(name);
-  check("V3/R5 a tap adds: the teal ✓, one line \"On the list\", and the stepper after it at 1", !!row && row.on && row.tick && !row.plus && row.sub === "On the list" && row.qty === "1", JSON.stringify({ name, row }));
+  check("V3/R5 a tap adds: \"On the list\" under the name and the stepper on the right at 1, no ✓", !!row && row.on && !row.tick && !row.plus && row.sub === "On the list" && row.qty === "1", JSON.stringify({ name, row }));
   await stepRow(name, "One more"); await sleep(1500);
   check("R5 the stepper's + makes it 2", (await rowState(name))?.qty === "2");
   await stepRow(name, "One fewer"); await sleep(1500);

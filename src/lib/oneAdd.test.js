@@ -68,10 +68,11 @@ describe("R1 — the empty List's entry cards", () => {
 
 describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals feeder", () => {
   test("one title, no switch, with the flag on", () => {
-    expect(APP).toContain('{screen === "library" ? "Add to this week" : "This Week"}');
+    expect(APP).toContain('<h2 className="plan-view on feeder-title">Add to this week</h2>');
+    expect(APP).toContain('<h2 className="plan-view on results-title">This Week</h2>');
   });
   test("the feeder's Done returns to This Week with N added", () => {
-    expect(APP).toContain('<button type="button" className="hdr-done" onClick={closeMealsFeeder}>Done</button>');
+    expect(APP).toContain('<button type="button" className="hdr-done pill" onClick={closeMealsFeeder}>Done</button>');
     expect(addedToastText(0)).toBeNull();
     expect(addedToastText(1)).toBe("1 added");
     expect(addedToastText(3)).toBe("3 added");
@@ -198,28 +199,39 @@ describe("R5 — one add control, one ✓ mark (this build's flag)", () => {
   const React = require("react");
   const { renderToStaticMarkup } = require("react-dom/server");
   const { ONE_ADD_ENABLED } = require("./featureFlags");
-  const { LibraryAction } = require("../components/LibraryCards");
+  const { LibraryAction, LibraryRow, LibraryCard } = require("../components/LibraryCards");
   const meal = { id: "m1", name: "Tacos" };
   const act = (stage) => renderToStaticMarkup(React.createElement(LibraryAction, { meal, stage, busy: false, canPlan: true, onPlan: () => {}, onUnplan: () => {} }));
   test("not on the board: the circle + either way", () => {
     expect(act("none")).toContain('class="lib-plan"');
     expect(act("none")).not.toContain("This week");
   });
-  test("on the board: the teal ✓ + \"This week\", readiness on a second line (flag on); today's pill / words (flag off)", () => {
+  const item = (C, stage) => renderToStaticMarkup(React.createElement(C, { meal, stage, busy: false, canPlan: true, onPlan: () => {}, onUnplan: () => {}, onOpen: () => {}, onSetType: () => {} }));
+  test("on the board: the ✓ alone on the right; \"This week\" a teal line under the name, readiness after it (flag on); today's pill / words (flag off)", () => {
     if (ONE_ADD_ENABLED) {
-      expect(act("planned")).toContain('class="lib-plan on"');
-      expect(act("planned")).toContain(">This week<");
-      expect(act("toBuy")).toContain(">To buy<");
-      expect(act("ready")).toContain(">Ready<");
-      expect(act("ready")).toContain(">This week<");
+      for (const st of ["planned", "toBuy", "ready"]) {
+        expect(act(st)).toContain('class="lib-plan on"');
+        expect(act(st)).not.toContain("This week");
+      }
+      for (const C of [LibraryRow, LibraryCard]) {
+        expect(item(C, "planned")).toContain('<span class="lib-onsub">This week</span>');
+        expect(item(C, "toBuy")).toContain('<span class="lib-onsub">This week<span class="lib-onsub-ready"> · To buy</span></span>');
+        expect(item(C, "ready")).toContain("> · Ready<");
+        expect(item(C, "none")).not.toContain("This week");
+      }
     } else {
+      expect(item(LibraryRow, "planned")).not.toContain("This week");
       expect(act("planned")).toContain('class="lib-plan planned"');
       expect(act("toBuy")).toBe('<span class="lib-stage">To buy</span>');
       expect(act("planned")).not.toContain("This week");
     }
   });
-  test("the feeder's row: ✓ + \"On the list\", the stepper after it; never an undo tap", () => {
+  test("the feeder's row: \"On the list\" under the name, the stepper alone on the right (no ✓); never an undo tap", () => {
     expect(APP).toContain('{on && <span className="pick-sub">On the list</span>}');
+    expect(APP).toContain('.pick-frow.on .pick-sub { color: #0A776D; font-weight: 700; }');
+    const rowSrc = APP.slice(APP.indexOf("const feederRow = (item) => {"), APP.indexOf("  const row = (item) => {"));
+    expect(rowSrc).not.toContain('pick-mark on');
+    expect(APP).toContain('subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}');
     expect(APP).toContain('aria-label="One fewer"');
     expect(APP).toContain('if (status === "on" && fresh.has(item.id) && !feeder) {');
   });

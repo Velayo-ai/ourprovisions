@@ -953,8 +953,8 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
     const gone = [...fresh].filter((id) => statusOf(id) === "off");
     if (gone.length) setFresh((prev) => { const n = new Set(prev); gone.forEach((id) => n.delete(id)); return n; });
   }, [feeder, fresh, statusOf]);   // statusOf is new each render; the guard (only when a fresh row has gone) ends the chain
-  // The feeder's row: one add control (the circle +) and one "it's on there" mark — the teal ✓ and one line,
-  // "On the list" — with the stepper after it. A div, so the stepper's buttons never sit inside the row's own.
+  // The feeder's row: one add control (the circle +) and one "it's on there" mark — a teal line under the name,
+  // "On the list" — with the stepper on the right as the row's one control (no ✓ beside it; meals show the ✓). A div, so the stepper's buttons never sit inside the row's own.
   const feederRow = (item) => {
     const on = statusOf(item.id) === "on";
     const node = (
@@ -971,11 +971,6 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
             <button type="button" className="pick-step-btn" aria-label="One fewer" onMouseDown={keepFocus} onClick={() => step(item, -1)}>−</button>
             <span className="pick-qty">{feeder.qtyOf(item)}</span>
             <button type="button" className="pick-step-btn" aria-label="One more" onMouseDown={keepFocus} onClick={() => step(item, 1)}>+</button>
-          </span>
-        )}
-        {on && (
-          <span className="pick-mark on" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="3"><path d="M5 12l5 5 9-10" /></svg>
           </span>
         )}
       </div>
@@ -1037,6 +1032,7 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
   };
   return (
     <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
+      subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}
       input={{ className: "modal-input", placeholder: feeder ? "Search our provisions…" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
       listTestId="list-picker" className={`item-picker${feeder ? " feeder" : ""}`}
       fieldAside={feeder ? (
@@ -2163,9 +2159,13 @@ function PlanSwitch({ screen, onSwitch, subtitle, action, rowRef, className }) {
   // Meals feeder titled "Add to this week" with Done (its `action`). One title, no switch.
   if (ONE_ADD_ENABLED) {
     return (
-      <div className={`plan-ctl results-head${className ? ` ${className}` : ""}`} ref={rowRef}>
+      <div className={`plan-ctl results-head${screen === "library" ? " feeder-bar" : ""}${className ? ` ${className}` : ""}`} ref={rowRef}>
         <div className="plan-ctl-text">
-          <h2 className="plan-view on results-title">{screen === "library" ? "Add to this week" : "This Week"}</h2>
+          {screen === "library" ? (
+            /* The Meals feeder's title bar matches the List feeder's (ItemSearchView's): Playfair 400 at 22, the dark
+               Done pill, the status line under the title, a thin rule under the bar. */
+            <h2 className="plan-view on feeder-title">Add to this week</h2>
+          ) : <h2 className="plan-view on results-title">This Week</h2>}
           {subtitle && <div className="plan-sub results-status">{subtitle}</div>}
         </div>
         {action}
@@ -2249,6 +2249,19 @@ function OccasionRail({ present, value, onChange }) {
     window.addEventListener("resize", sync);
     return () => { rail.removeEventListener("scroll", sync); window.removeEventListener("resize", sync); };
   }, [sync]);
+  // One add: the List rail's chips (.cat-pill) and no "All" — none selected is all; the selected chip again clears it.
+  if (ONE_ADD_ENABLED) {
+    return (
+      <div className={`cat-rail-wrap lib-rail${edges.atStart ? " at-start" : ""}${edges.atEnd ? " at-end" : ""}`}>
+        <div className="cat-rail" ref={node} role="group" aria-label="Good for">
+          {present.map((k) => (
+            <button key={k} type="button" aria-pressed={value === k} data-active={value === k ? "1" : undefined}
+              className={`cat-pill occ${value === k ? " on" : ""}`} onClick={() => onChange(value === k ? "all" : k)}>{OCCASION_PILL[k]}</button>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const pills = [["all", "All"], ...present.map((k) => [k, OCCASION_PILL[k]])];
   return (
     <div className={`cat-rail-wrap lib-rail${edges.atStart ? " at-start" : ""}${edges.atEnd ? " at-end" : ""}`}>
@@ -3622,11 +3635,33 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
     );
   }
 
+  // The search row's two tools; ONE toggle (D8): it shows the view you'd switch TO and names the action.
+  const filterBtn = (
+    <button
+      type="button"
+      className="lib-fbtn"
+      aria-label={ONE_ADD_ENABLED ? (activeCount ? `View and filter, ${activeCount} active` : "View and filter") : activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
+      onClick={() => setDraft(ONE_ADD_ENABLED ? { ...filters, occ } : { ...filters })}
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
+      {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
+    </button>
+  );
+  const viewToggle = (
+    <button
+      type="button"
+      className="lib-vtog"
+      aria-label={TOGGLE_LABEL[libView]}
+      onClick={toggleLibView}
+    >
+      {libView === "list" ? <GridGlyph /> : <ListGlyph />}
+    </button>
+  );
   // Made before alone emptying the grid keeps its own line; everything else
   // is "Nothing matches that yet."
   const madeAlone = filters.made && !filters.from && !filters.ours && !q && occ === "all";
   return (
-    <div className="lib">
+    <div className={ONE_ADD_ENABLED ? "lib oneadd" : "lib"}>
       {/* The fixed VERB half of every aria-labelledby name on this screen, rendered once, outside
           every button: "Plan {meal}", "Remove from this week", "Set meal type for {meal}",
           "Open {meal}", "Remove filter: {name}'s". The other half is the masked title element
@@ -3648,24 +3683,8 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
             aria-label={ONE_ADD_ENABLED ? "Search our meals" : "Search your meals"}
           />
         </label>
-        <button
-          type="button"
-          className="lib-fbtn"
-          aria-label={ONE_ADD_ENABLED ? (activeCount ? `View and filter, ${activeCount} active` : "View and filter") : activeCount ? `Filter meals, ${activeCount} active` : "Filter meals"}
-          onClick={() => setDraft(ONE_ADD_ENABLED ? { ...filters, occ } : { ...filters })}
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1.5v-8z" /></svg>
-          {activeCount > 0 && <span className="lib-fdot" aria-hidden="true" />}
-        </button>
-        {/* ONE toggle (D8): it shows the view you'd switch TO and names the action. */}
-        <button
-          type="button"
-          className="lib-vtog"
-          aria-label={TOGGLE_LABEL[libView]}
-          onClick={toggleLibView}
-        >
-          {libView === "list" ? <GridGlyph /> : <ListGlyph />}
-        </button>
+        {/* One add: search · grid/list · filter, the List feeder's order. */}
+        {ONE_ADD_ENABLED ? <>{viewToggle}{filterBtn}</> : <>{filterBtn}{viewToggle}</>}
       </div>
 
       {/* Active filters are always visible (decision 10): a filtered grid must never read as a short library. */}
@@ -11089,13 +11108,26 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-qty { min-width: 18px; text-align: center; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #2C1A0E; }
         .pick-grid .pick-frow { flex-wrap: wrap; row-gap: 8px; }
         .pick-grid .pick-frow .pick-hit { flex-basis: 100%; }
-        .pick-grid .pick-frow.on .pick-mark.on { margin-left: auto; }
-        /* R5 on meal cards: the teal ✓ and "This week", readiness on a second line. */
-        .lib-on { display: inline-flex; align-items: center; gap: 8px; }
-        .lib-on-text { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; font-family: 'Lato', sans-serif; }
-        .lib-on-line { font-size: calc(12px * var(--op-text-scale)); font-weight: 700; color: #0A776D; white-space: nowrap; }
-        .lib-on-sub { font-size: calc(11.5px * var(--op-text-scale)); color: #8a7a60; white-space: nowrap; }
+        .pick-grid .pick-frow.on .pick-step { margin-left: auto; }
+        .pick-frow.on .pick-sub { color: #0A776D; font-weight: 700; }
+        /* R5 on meal cards (matching the List feeder's row): the teal subtitle under the name ("This week", readiness
+           after it in quiet ink), the teal ✓ alone on the right, and the outlined circle + before it's on. */
+        .lib-onsub { display: block; margin-top: 2px; font: 700 calc(12px * var(--op-text-scale)) 'Lato', sans-serif; color: #0A776D; }
+        .lib-onsub-ready { font-weight: 400; color: #8a7a60; }
+        .lib-gtitle { display: block; min-width: 0; }
+        .lib-gtitle .lib-onsub { padding: 0 12px; }
         .lib-plan.on { background: #13877C; border-color: #13877C; color: #fff; display: inline-grid; place-items: center; }
+        .lib.oneadd .lib-plan, .lib.oneadd .lib-row .lib-plan { width: 36px; height: 36px; display: inline-grid; place-items: center; }
+        .lib.oneadd .lib-plan:not(.on) { background: none; border: 1.5px solid #C9A26A; color: #9A7350; }
+        .lib.oneadd .lib-plan.on { border: 1.5px solid #13877C; }
+        .lib.oneadd .lib-plan svg { width: 16px; height: 16px; }
+        /* The Meals feeder's title bar = the List feeder's: Playfair 400 at 22, the dark Done pill, a thin rule under
+           the bar (edge to edge, as in the List feeder), the status line under the title. */
+        .plan-ctl.feeder-bar { align-items: center; margin: 6px -16px 16px; padding: 0 16px 12px; border-bottom: 1.5px solid #d8bf94; }
+        .plan-view.feeder-title { margin: 0; padding: 0; border: none; cursor: default; white-space: nowrap; font-family: 'Playfair Display', serif;
+                                  font-weight: 400; font-size: calc(22px * (1 + (var(--op-text-scale) - 1) * 0.4)); line-height: 1.2; color: #2C1A0E; }
+        .hdr-done.pill { min-height: 44px; padding: 0 22px; border-radius: 999px; background: #3A281C; color: #FFFDF9; }
+        .cat-pill.occ { padding: 9px 16px; flex: none; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
                       box-shadow: 0 8px 24px rgba(0,0,0,0.25); }
@@ -12512,7 +12544,7 @@ function ProvisionsApp({ scrollRootRef }) {
               className="meals"
               subtitle={<>What sounds good? · {libraryMeals.length} {libraryMeals.length === 1 ? "meal" : "meals"}</>}
               action={ONE_ADD_ENABLED ? (
-                <button type="button" className="hdr-done" onClick={closeMealsFeeder}>Done</button>
+                <button type="button" className="hdr-done pill" onClick={closeMealsFeeder}>Done</button>
               ) : MEALS_ENABLED && isSignedIn ? (
                 <HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />
               ) : null}

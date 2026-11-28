@@ -66,10 +66,11 @@ export function useItemSearch() {
 // One add (SPEC_results_feeder_standard R2, flag-on hosts only; every one defaults to today's view):
 //   fieldAside — controls beside the field in the title variant (the layout toggle, View & filter).
 //   tools      — a row under the field (the rail), above the count and the list.
+//   subtitle   — a status line under the title in the title bar ("What do we need? · N items").
 //   suspended  — the view stays open (its state, its query) but is hidden while a sheet the feeder
 //                opened sits over the app (New item, View & filter, the Ask chooser); those sheets live in
 //                the app's tree below this portal's z 2100, so the feeder steps aside rather than out-stack them.
-export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, count = null, listTestId, className = "", overlay = null, fieldAside = null, tools = null, suspended = false, children }) {
+export function ItemSearchView({ search, onClose, query, onQuery, label, input = {}, title = null, subtitle = null, count = null, listTestId, className = "", overlay = null, fieldAside = null, tools = null, suspended = false, children }) {
   const { open, viewRef, viewBox, setViewBox, inputRef } = search;
 
   useEffect(() => {
@@ -157,8 +158,13 @@ export function ItemSearchView({ search, onClose, query, onQuery, label, input =
           aria-hidden={open ? undefined : true} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
           {title ? (
             <>
-              <div className="item-search-titlebar">
-                <h2 className="item-search-title">{title}</h2>
+              <div className={`item-search-titlebar${subtitle ? " has-sub" : ""}`}>
+                {subtitle ? (
+                  <div className="item-search-titletext">
+                    <h2 className="item-search-title">{title}</h2>
+                    <div className="item-search-sub">{subtitle}</div>
+                  </div>
+                ) : <h2 className="item-search-title">{title}</h2>}
                 {done(" item-search-done")}
               </div>
               <div className="ask-search-head item-search-field">
@@ -210,6 +216,9 @@ export const ITEM_SEARCH_CSS = `
 .item-search-titlebar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 60px; padding: 0 16px;
   border-bottom: 1.5px solid #d8bf94; }
 .item-search-title { margin: 0; min-width: 0; font: 400 calc(22px * (1 + (var(--op-text-scale, 1) - 1) * 0.4)) 'Playfair Display', serif; color: #2C1A0E; }
+.item-search-titlebar.has-sub { padding: 10px 16px; }
+.item-search-titletext { min-width: 0; }
+.item-search-sub { margin-top: 4px; font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8a7a60; }
 .ask-search-done.item-search-done { min-height: 44px; padding: 0 22px; border-radius: 999px; background: #3A281C; color: #FFFDF9; }
 .item-search-field { position: relative; padding: 14px 16px 6px; }
 .item-search-glass { position: absolute; left: 30px; top: 50%; margin-top: 4px; transform: translateY(-50%); color: #9A7350; display: flex; pointer-events: none; }
