@@ -80,3 +80,12 @@ export function guessAisle(query, items, { fallback = "Other", skip = [] } = {})
   const ranked = Object.entries(best).sort((a, b) => b[1].hit - a[1].hit || b[1].cov - a[1].cov || b[1].n - a[1].n);
   return ranked.length ? ranked[0][0] : fallback;
 }
+
+// THE RAIL RULE (both feeders): a category chip is single-select — a tap on another switches to it, a tap on
+// the selected one clears it. Staples toggles on its own and combines with the category (the intersection);
+// Ask is an action, never selected. Several categories at once come only from View & filter, so a tap on one of
+// several selected clears just that one.
+export function railCategoryTap(selected, raw) {
+  if (selected.has(raw)) { const next = new Set(selected); next.delete(raw); return next; }
+  return new Set([raw]);
+}

@@ -72,7 +72,7 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle } from './lib/oneAdd';
+import { routeView, helmDoors, listStatusLine, addedToastText, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
 // The staples pseudo-aisle: never a guess for a new item, never one of its aisle pills.
@@ -1050,7 +1050,12 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
       ));
     return (
       <>
-        {groups.length === 0 && <div className="pick-empty">Nothing here yet.</div>}
+        {groups.length === 0 && (feeder.emptyNote ? (
+          <div className="pick-empty-note" role="note">
+            <p className="pick-empty">{feeder.emptyNote.text}</p>
+            <button type="button" className="pick-empty-link" onMouseDown={keepFocus} onClick={feeder.emptyNote.onLink}>{feeder.emptyNote.link}</button>
+          </div>
+        ) : <div className="pick-empty">Nothing here yet.</div>)}
         {groups}
         <button type="button" className="pick-row pick-create" onClick={() => feeder.onNewItem(null)}>
           <span className="pick-main"><span className="pick-name">+ New item</span></span>
@@ -7835,7 +7840,10 @@ function ProvisionsApp({ scrollRootRef }) {
     // Layer 2 — Category chips narrow within whatever Layer 1 produced.
     // Only narrow by categories that still exist, so a stale filter id
     // (e.g. a category deleted here or on another device) can never blank the view.
-    const liveNames = new Set(result.map(cat => cat.rawName));
+    // One add (the rail rule): Staples + a category is the INTERSECTION — that category's staples only, even
+    // when there are none (the feeder says so). "Still exists" is read before Layer 1 there; without one add,
+    // a category Staples emptied stops narrowing (the union, as before).
+    const liveNames = new Set((ONE_ADD_ENABLED ? categories : result).map(cat => cat.rawName));
     const activeSelected = [...selectedCategories].filter(n => liveNames.has(n));
     if (activeSelected.length > 0) {
       result = result.filter(cat => activeSelected.includes(cat.rawName));
@@ -9011,8 +9019,9 @@ function ProvisionsApp({ scrollRootRef }) {
           onMouseDown={keepFocus} onClick={() => setStapleFilter(f => !f)}>
           <span className="cat-em">★</span>Staples
         </button>
+        {/* Ask is an action, never a filter: it never shows a selected state. */}
         {feederAsk.kind === "one" && (
-          <button type="button" className={`cat-pill people-pill${activeAskId === feederAsk.ask.id ? " on" : ""}`} onClick={() => feederHandover(feederAsk.ask.id)}>
+          <button type="button" className="cat-pill people-pill" onClick={() => feederHandover(feederAsk.ask.id)}>
             <span className="cat-em"><AskIcon /></span>
             <span>Ask <span className="op-name">{feederAsk.ask.label}</span></span>
           </button>
@@ -9028,7 +9037,7 @@ function ProvisionsApp({ scrollRootRef }) {
           return (
             <button key={cat.rawName} type="button" className={`cat-pill${isActive ? " on" : ""}`} data-active={isActive ? "1" : undefined}
               onMouseDown={keepFocus}
-              onClick={() => setSelectedCategories(prev => { const next = new Set(prev); if (next.has(cat.rawName)) next.delete(cat.rawName); else next.add(cat.rawName); return next; })}>
+              onClick={() => setSelectedCategories(prev => railCategoryTap(prev, cat.rawName))}>
               <span className="cat-em">{categoryGlyph(cat.rawName)}</span>
               {categoryRailLabel(cat.rawName)}
             </button>
@@ -9037,6 +9046,15 @@ function ProvisionsApp({ scrollRootRef }) {
       </div>
     </div>
   ) : null;
+  // The empty intersection (Staples + one category with no staples): the line, and the way back to that aisle.
+  const railOneCat = ONE_ADD_ENABLED && stapleFilter
+    ? categories.filter((cat) => selectedCategories.has(cat.rawName))
+    : [];
+  const feederEmptyNote = railOneCat.length === 1 && categoryBlocks.length === 0 ? {
+    text: `No ${categoryRailLabel(railOneCat[0].rawName)} staples yet. Star one to keep it up front.`,
+    link: `Show all ${categoryRailLabel(railOneCat[0].rawName)}`,
+    onLink: () => setStapleFilter(false),
+  } : null;
   const feeder = ONE_ADD_ENABLED ? {
     sections: feederSections,
     flat: feederFlat,
@@ -9044,6 +9062,7 @@ function ProvisionsApp({ scrollRootRef }) {
     layout: feederLayout,
     onLayout: chooseFeederLayout,
     onNewItem: (rawCategory) => openAddItem({ category: rawCategory }),
+    emptyNote: feederEmptyNote,
     // The search create's aisle pills: every household aisle (the Ask create card's set), plus "Other" (the
     // guess's fallback) when the household has none of that name.
     aisles: [
@@ -11324,6 +11343,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .pick-aisle-caret { margin-left: 6px; font-size: 0.7em; opacity: 0.8; }
         .pick-addcard .cat-grid { margin-top: 10px; }
         .pick-empty { padding: 24px 4px; font: italic 400 calc(15px * var(--op-text-scale)) 'Playfair Display', serif; color: #8a7a60; }
+        .pick-empty-note .pick-empty { margin: 0; padding: 24px 4px 6px; }
+        .pick-empty-link { border: none; background: none; padding: 10px 4px; cursor: pointer; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
+          color: #8A5F3A; text-decoration: underline; text-underline-offset: 3px; }
         .pick-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
         .pick-grid .pick-row { min-height: 72px; padding: 10px 10px 10px 12px; border: 1.5px solid #EADFCF; border-radius: 14px; background: #fff; align-items: flex-start; }
         .pick-grid .pick-row.on { border-color: #13877C; }

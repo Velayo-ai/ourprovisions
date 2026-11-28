@@ -147,6 +147,26 @@ describe("the List feeder's search create (flag on)", () => {
   });
 });
 
+describe("the rail rule (both feeders)", () => {
+  const { railCategoryTap } = require("./oneAdd");
+  test("categories are single-select: another switches, the selected one clears; several only from the sheet", () => {
+    expect([...railCategoryTap(new Set(), "Produce")]).toEqual(["Produce"]);
+    expect([...railCategoryTap(new Set(["Produce"]), "Dairy")]).toEqual(["Dairy"]);
+    expect([...railCategoryTap(new Set(["Dairy"]), "Dairy")]).toEqual([]);
+    expect([...railCategoryTap(new Set(["Dairy", "Pantry"]), "Pantry")]).toEqual(["Dairy"]);
+    expect([...railCategoryTap(new Set(["Dairy", "Pantry"]), "Produce")]).toEqual(["Produce"]);
+  });
+  test("Staples + a category is the intersection; the empty one says so; Ask is never selected", () => {
+    expect(APP).toContain("onClick={() => setSelectedCategories(prev => railCategoryTap(prev, cat.rawName))}>");
+    expect(APP).toContain("const liveNames = new Set((ONE_ADD_ENABLED ? categories : result).map(cat => cat.rawName));");
+    expect(APP).toContain("text: `No ${categoryRailLabel(railOneCat[0].rawName)} staples yet. Star one to keep it up front.`,");
+    expect(APP).toContain("link: `Show all ${categoryRailLabel(railOneCat[0].rawName)}`,");
+    expect(APP).toContain('<button type="button" className="cat-pill people-pill" onClick={() => feederHandover(feederAsk.ask.id)}>');
+    // the Meals rail: none selected is all; the selected chip again clears it
+    expect(APP).toContain('onClick={() => onChange(value === k ? "all" : k)}');
+  });
+});
+
 describe("Home's list card (flag on)", () => {
   test("empty: Our list is empty + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
     expect(APP).toContain('const title = empty ? "Our list is empty"');
