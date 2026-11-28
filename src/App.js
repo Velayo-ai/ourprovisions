@@ -1483,9 +1483,13 @@ export function OnDeckCard({
   const st = boardCardState(m, { placements, rows, mealById, cookedIds });
   const busy = busyMealId === m.id || switching;
   const canSwitch = boardMeals.length >= 2;
+  // ONE ADD (flag on): This Week's rule — ingredients not on the list → "Add to list" (no "Not on the list yet");
+  // once added → the teal mark "On the list" / "Everything's in" and no button. Switch stays beside either.
+  const oaMark = ONE_ADD_ENABLED && !st.noShop && (st.toBuy || st.ready) ? (st.ready ? "Everything's in" : "On the list") : null;
+  const showLine = !(ONE_ADD_ENABLED && (st.canAdd || st.toBuy || st.ready));
   let primary = null;
-  if (st.noShop || st.toBuy) {
-    primary = null;                                   // D9 / D4
+  if (st.noShop || st.toBuy || oaMark) {
+    primary = null;                                   // D9 / D4 (one add: the mark instead)
   } else if (st.ready || !st.canAdd) {
     // Ready (row 3) — and a planned meal with nothing to shop for (row 6).
     primary = <button type="button" className="deck-primary teal" disabled={busy} onClick={() => { if (!busy) onCooked(m.id); }}>Cooked it</button>;
@@ -1511,7 +1515,8 @@ export function OnDeckCard({
         >
           {/* Display casing only (displayTitle, visual v2 D11) — the meal branch; a held night's title is its label. */}
           <h3 className="deck-title">{displayTitle(st.title)}</h3>
-          {st.line && <p className="deck-status">{st.line}</p>}
+          {st.line && showLine && <p className="deck-status">{st.line}</p>}
+          {oaMark && <div className="board-mark deck-mark"><span className="board-mark-tick" aria-hidden="true">✓</span>{oaMark}</div>}
         </div>
       )}
       {(primary || st.noShop || canSwitch) && (
@@ -10281,6 +10286,7 @@ function ProvisionsApp({ scrollRootRef }) {
         .board-card.ready .board-line { color: #6f5a45; }
         /* One add: the card's teal mark once its ingredients are on the list (or all in). */
         .board-mark { display: flex; align-items: center; gap: 6px; font: 700 calc(14px * var(--op-text-scale)) 'Lato', sans-serif; color: #0A776D; }
+        .deck-mark { margin-top: 8px; }
         .board-mark-tick { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #13877C; color: #fff; font-size: 12px; }
         .board-actions { display: flex; align-items: center; gap: 2px; margin-top: 3px; }
         .board-actions-gap { flex: 1; }

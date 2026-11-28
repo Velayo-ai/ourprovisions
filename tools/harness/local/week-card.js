@@ -1,7 +1,8 @@
 // One add: This Week's meal card — the button before, the teal mark after (flag on). On the dev DB as the test
 // account, through the app only: a meal is made in the Meals feeder (search → "Create “…” as a new meal", one
 // ingredient: Apples; saved, it goes on This Week). On This Week its card shows only "Add to list" — no
-// Planned chip, no "Not on the list yet"; after the tap: the teal mark "On the list" and no button.
+// Planned chip, no "Not on the list yet"; after the tap: the teal mark "On the list" and no button. Home's ON DECK
+// card follows the same rule (Switch shows only with 2+ meals on This Week; here there is one).
 // Tidy: ⋯ → Remove (and take its items off the list), then the app's delete (recipe → Edit → Delete meal);
 // the DB read back: no live meal, no open placement, nothing on the list. Flag-on build, signed in; local or `remote`.
 // ("Everything's in" — the all-on-hand / wrapped-up state — is Jest's: src/lib/oneAdd.test.js.)
@@ -28,6 +29,15 @@ const NAME = `Week Card ${Date.now().toString(36).slice(-5)}`;
       mark: c.querySelector(".board-mark")?.textContent.trim() || null,
       buttons: [...c.querySelectorAll(".board-actions > button")].map((x) => x.textContent.trim()).filter((t) => t !== "⋯") };
   }, NAME);
+  // Home's ON DECK card (the meal is the only one on This Week, so it is on deck)
+  const deck = async () => {
+    await p.evaluate(() => { location.hash = "#/home"; }); await sleep(1800);
+    const d = await p.evaluate(() => { const c = [...document.querySelectorAll(".home .deck")].find((e) => !e.classList.contains("home-list-card")); return c && {
+      eyebrow: c.querySelector(".deck-eyebrow")?.innerText.trim(), title: c.querySelector(".deck-title")?.textContent.trim(), status: c.querySelector(".deck-status")?.textContent.trim() || null,
+      mark: c.querySelector(".deck-mark")?.textContent.trim() || null, buttons: [...c.querySelectorAll(".deck-actions button")].map((x) => x.textContent.trim()) }; });
+    await p.evaluate(() => { location.hash = "#/plan"; }); await sleep(1500);
+    return d;
+  };
   const dbRead = async () => {
     const m = await rest("GET", `meals?select=id,deleted_at&household_id=eq.${HH}&name=eq.${encodeURIComponent(NAME)}`);
     const ids = m.map((x) => x.id);
@@ -53,12 +63,16 @@ const NAME = `Week Card ${Date.now().toString(36).slice(-5)}`;
     let c = await card();
     check("on This Week, ingredients not on the list: \"Add to list\" alone — no Planned chip, no \"Not on the list yet\"",
       !!c && !c.chip && !c.line && !c.mark && JSON.stringify(c.buttons) === JSON.stringify(["Add to list"]), JSON.stringify(c));
+    let d = await deck();
+    check("Home's ON DECK, not on the list: \"Add to list\" — no \"Not on the list yet\" (label ON DECK)", !!d && d.eyebrow === "ON DECK" && d.title === NAME && !d.status && !d.mark && d.buttons.join() === "Add to list", JSON.stringify(d));
     await p.evaluate((name) => [...document.querySelectorAll(".board-card")].find((e) => e.querySelector(".board-card-title")?.textContent.trim() === name)?.querySelector(".board-lock")?.click(), NAME);
     await sleep(3500);
     c = await card();
     check("after Add to list: the teal mark \"On the list\", no button", !!c && c.mark === "✓On the list" && c.buttons.length === 0 && !c.chip && !c.line, JSON.stringify(c));
-    const d = await dbRead();
-    check("the DB: the meal on This Week, its ingredient on the list", d.live === 1 && d.open === 1 && d.listRows >= 1, JSON.stringify(d));
+    d = await deck();
+    check("Home's ON DECK, added: the teal mark \"On the list\", no button", !!d && d.mark === "✓On the list" && !d.status && d.buttons.length === 0, JSON.stringify(d));
+    const db = await dbRead();
+    check("the DB: the meal on This Week, its ingredient on the list", db.live === 1 && db.open === 1 && db.listRows >= 1, JSON.stringify(db));
   } catch (e) {
     check("the walk ran to the end", false, e.message);
   } finally {

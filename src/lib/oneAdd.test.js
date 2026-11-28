@@ -321,6 +321,34 @@ describe("This Week cards: the button before, the teal mark after", () => {
   });
 });
 
+describe("Home's ON DECK card: This Week's rule", () => {
+  const React = require("react");
+  const { renderToStaticMarkup } = require("react-dom/server");
+  const { ONE_ADD_ENABLED } = require("./featureFlags");
+  const { OnDeckCard } = require("../App");
+  const m = (id, ings) => ({ id, name: "Tacos", kind: "meal", meal_ingredients: ings.map((x) => ({ id: x })) });
+  const other = { id: "z", name: "Soup", kind: "meal", meal_ingredients: [{ id: 9 }] };
+  const deck = (meal, { rows = {}, placements = {} } = {}) => renderToStaticMarkup(React.createElement(OnDeckCard, {
+    boardMeals: [meal, other], boardCards: [meal, other], placements: { [meal.id]: { sortOrder: 0, ...placements[meal.id] }, z: { sortOrder: 1 } }, rows,
+    mealById: {}, cookedIds: new Set(), busyMealId: null, switching: false, holdNight: false,
+    onAdd: () => {}, onView: () => {}, onLockIn: () => {}, onCooked: () => {}, onSkip: () => {}, onSwitch: () => {},
+  }));
+  test("not on the list: Add to list + Switch, no \"Not on the list yet\"; added: the mark + Switch; all in: Everything's in + Switch", () => {
+    const a = deck(m("a", [1]));
+    const b = deck(m("b", [1]), { rows: { b: { total: 2, bought: 0 } } });
+    const c = deck(m("c", [1]), { placements: { c: { readyAt: "2026-11-28T00:00:00Z" } } });
+    expect(a).toContain(">Add to list</button>"); expect(a).toContain(">Switch</button>");
+    expect(b).toContain(">Switch</button>"); expect(c).toContain(">Switch</button>");
+    if (ONE_ADD_ENABLED) {
+      expect(a).not.toContain("Not on the list yet"); expect(a).not.toContain("deck-mark");
+      expect(b).toContain("✓</span>On the list</div>"); expect(b).not.toContain("2 to buy");
+      expect(c).toContain("✓</span>Everything&#x27;s in</div>"); expect(c).not.toContain(">Cooked it</button>");
+    } else {
+      expect(a).toContain("Not on the list yet"); expect(b).toContain("2 to buy"); expect(c).toContain(">Cooked it</button>");
+    }
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {
