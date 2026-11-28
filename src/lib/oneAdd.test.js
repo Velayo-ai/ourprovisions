@@ -246,6 +246,23 @@ describe("icons (flag on): text-only rail chips; meal types in the aisle icons' 
   });
 });
 
+describe("Home's meal card, nothing on deck", () => {
+  test("\"+ Add a meal\" and the empty List's Plan line (flag on); today's words (flag off)", () => {
+    const React = require("react");
+    const { renderToStaticMarkup } = require("react-dom/server");
+    const { ONE_ADD_ENABLED } = require("./featureFlags");
+    const { OnDeckCard } = require("../App");
+    const html = renderToStaticMarkup(React.createElement(OnDeckCard, { boardMeals: [], boardCards: [], placements: {}, rows: {}, mealById: {}, cookedIds: new Set(), holdNight: false, onAdd: () => {} }));
+    if (ONE_ADD_ENABLED) {
+      expect(html).toContain(">+ Add a meal</button>");
+      expect(html).toContain("Build or choose a meal, and we&#x27;ll add what it needs.");
+    } else {
+      expect(html).toContain(">Add a meal</button>");
+      expect(html).toContain("Plan a meal and we&#x27;ll turn it into your list.");
+    }
+  });
+});
+
 describe("Home's list card (flag on)", () => {
   test("empty: Let's build our list. + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
     expect(APP).toContain(`const title = empty ? "Let's build our list."`);

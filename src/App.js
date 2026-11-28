@@ -1468,10 +1468,11 @@ export function OnDeckCard({
         <div className="deck-eyebrow">On deck</div>
         <div className="deck-body">
           <h3 className="deck-title">What sounds good?</h3>
-          <p className="deck-status">Plan a meal and we'll turn it into your list.</p>
+          {/* One add: the empty List's "Plan a meal" line, and "+ Add" like the list card's button. */}
+          <p className="deck-status">{ONE_ADD_ENABLED ? "Build or choose a meal, and we'll add what it needs." : "Plan a meal and we'll turn it into your list."}</p>
         </div>
         <div className="deck-actions">
-          <button type="button" className="deck-primary add" onClick={onAdd}>Add a meal</button>
+          <button type="button" className="deck-primary add" onClick={onAdd}>{ONE_ADD_ENABLED ? "+ Add a meal" : "Add a meal"}</button>
         </div>
         {holdNight && <HoldANightButtons label="OR HOLD A NIGHT" onLeftovers={onLeftovers} onOut={onOut} onOther={onOther} />}
       </section>

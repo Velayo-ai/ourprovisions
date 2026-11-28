@@ -32,6 +32,10 @@ const readCard = (p) => p.evaluate(() => {
   try {
     await home();
     check("a one-add build", await nav.isOneAdd(p));
+    // the meal card, nothing on deck: "+ Add a meal" and the empty List's Plan line
+    const deck = await p.evaluate(() => { const d = [...document.querySelectorAll(".home .deck")].find((e) => !e.classList.contains("home-list-card")); return d && { title: d.querySelector(".deck-title")?.textContent.trim(), status: d.querySelector(".deck-status")?.textContent.trim(), button: d.querySelector(".deck-primary")?.textContent.trim() }; });
+    if (deck && deck.title === "What sounds good?") check("the meal card: \"+ Add a meal\", \"Build or choose a meal, and we'll add what it needs.\"", deck.button === "+ Add a meal" && deck.status === "Build or choose a meal, and we'll add what it needs.", JSON.stringify(deck));
+    else log(`SKIP  the meal card's empty state: something is on deck here (${deck && deck.title})`);
     let c = await readCard(p);
     check("the card sits near the top: first card, above On deck, the meal card's style; no list line", !!c && c.firstCard && c.sameStyle && !c.listLine, JSON.stringify(c));
     if (c && c.title === "Let's build our list.") {
