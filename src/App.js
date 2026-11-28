@@ -10039,6 +10039,14 @@ function ProvisionsApp({ scrollRootRef }) {
         .lib-fbtn, .lib-vtog { flex: none; width: 44px; height: 44px; border-radius: 12px; border: 1.5px solid #E8D5B7; background: #FFFDF9; color: #6f5a45; cursor: pointer;
                     display: flex; align-items: center; justify-content: center; position: relative; padding: 0; }
         .lib-fdot { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #A0724A; border: 1.5px solid #FFFDF9; }
+        /* One add (flag on): the Meals search row = the List feeder's — the 52px white field (radius 16, sand border,
+           the 18px glass, 17px text, the focus border) and the 46px tool buttons (radius 14), 12px apart. */
+        .lib.oneadd .lib-search-row { gap: 12px; align-items: center; }
+        .lib.oneadd .lib-search { height: 52px; border-radius: 16px; border-color: #d8bf94; background: #fff; color: #9A7350; transition: border-color 0.2s; }
+        .lib.oneadd .lib-search:focus-within { border-color: #c8973a; }
+        .lib.oneadd .lib-search svg { width: 18px; height: 18px; }
+        .lib.oneadd .lib-search input { font-size: calc(17px * var(--op-text-scale)); }
+        .lib.oneadd .lib-fbtn, .lib.oneadd .lib-vtog { width: 46px; height: 46px; border-radius: 14px; border-color: #d8bf94; background: #fff; }
         .lib-active { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
         .lib-chip-x { height: 32px; padding: 0 10px 0 6px; border-radius: 16px; border: 1.5px solid #6f5a45; background: #FFFDF9; color: #2C1A0E; cursor: pointer;
                       font-family: 'Lato', sans-serif; font-size: calc(14px * (1 + (var(--op-text-scale) - 1) * 0.8)); font-weight: 700; display: inline-flex; align-items: center; gap: 7px; }
