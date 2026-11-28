@@ -1,101 +1,84 @@
-Reported: 2026-11-28 01:18 ET · dev 36d197b · main e93b265 · re: Done · N; This Week cards; Home ON DECK (2b) and highlight (2c); the untyped placeholder; the meal → ingredients question · prompt: none (asked directly in Claude Code)
+Reported: 2026-11-28 02:39 ET · dev 36d197b · main e93b265 · re: adding a meal adds its ingredients; un-plan; progress feedback; offline; Review ingredients; Cooked it beside "Everything's in" · prompt: none (asked directly in Claude Code)
 
-# Six commits pushed to exp/one-add (head 94ce65f). The preview has rebuilt, and every harness check passes on it. dev and main are unchanged. Your meal → ingredients question is answered at the end: "we'll add what it needs" is not true today.
+# Adding a meal now adds its ingredients, and all six items are built. Pushed to exp/one-add (head 24a6f7f). The preview has rebuilt, every harness check passes on it, and the test house is clean. dev and main are unchanged.
 
-**New head:** `exp/one-add` = `94ce65f`
+**Headline:** item 5 (Review ingredients) is built with one compromise. An exact version needs a small server change; see item 5.
+
+**New head:** `exp/one-add` = `24a6f7f`
 **Preview:** https://ourprovisions-git-exp-one-add-dan-valeyos-projects.vercel.app
-- **Bundle:** `main.d6366b46.js` (deployment `dpl_75niBoRUexNZ8q1DRK5U2kuVL9es`, READY, built from `94ce65f`)
-- **Build tag on the alias:** "dev · 94ce65f", with `op-one-add:on`.
+- **Bundle:** `main.dd06d72a.js` (deployment `dpl_8ZdTwJaHLuzAHurnCeSNv9NhHuNd`, READY, built from `24a6f7f`)
+- **Build tag on the alias:** "dev · 24a6f7f", with `op-one-add:on`.
 
-## Commits (flag on; flag off unchanged throughout)
-1. **`546c5d2`: live count on Done, both feeders.**
-   - The pill reads "Done · N" after the first add and plain "Done" at 0.
-   - **List:** N is adds this visit minus undos; a row taken back off with − no longer counts.
-   - **Meals:** N is the meals on This Week now that weren't when the feeder opened; un-planning one takes it back off the count.
-   - The "N added" toast on close stays.
-2. **`4fca49f`: This Week cards.** The "Planned" chip and the "Not on the list yet" line are gone.
-   - Ingredients not on the list: only "Add to list".
-   - Once added: the teal mark "✓ On the list", or "✓ Everything's in" (all on hand via 064's stamp, or wrapped up), and **no button**.
-   - "See on list", "Wrap up →" and "Cooked it" leave the card at rest. **"Cooked it" moves into ⋯ for an "Everything's in" card,** so cooking stays reachable from This Week; a planned card already had it there.
-   - **Side effect:** when everything is in the cart, the card no longer shows "Wrap up →". The recipe view keeps that nudge, and the Wrap up bar on List is unchanged.
-   - A planned meal with no ingredients keeps "Nothing to shop for". No bulk "Add ingredients" card.
-3. **`8179e1a`: a fix the harness found.** The Meals feeder's Done now empties its search, as the List feeder's always has. It was left behind in the move onto the full-screen layer: the next open showed the old search. Filters, view and By type / A–Z still stay across opens.
-4. **`6526e5b` (2b): Home's ON DECK card, same rule.**
-   - No "Not on the list yet". Not on the list: "Add to list" + Switch.
-   - Once added: the teal mark "On the list" / "Everything's in" + Switch, and no "Cooked it" at rest. On Home, "Cooked it" for a meal whose ingredients are all in is now on This Week's ⋯ and in the recipe view.
-   - A planned meal with no ingredients keeps "Nothing to shop for" + Cooked it.
-   - The LIST and ON DECK labels stay. Switch shows only with 2+ meals on This Week, as before.
-5. **`b100cde` (2c): Home's highlight.**
-   - **Empty list:** the LIST card takes the empty List's "Add items" treatment: light teal fill (#E3F1EE), a 2px teal border, and a teal "+ Add items" button. The padding is 2px less, so the card keeps its size.
-   - **With items:** sand, like ON DECK.
-   - ON DECK is never highlighted, so Home has at most one highlighted card.
-6. **`94ce65f`: untyped meal placeholder.** A plain tile: the same grey band and size, with no glyph or drawing, so it can't pass for Dinner's 🍽️. Typed cards keep their type emoji.
-   - **Screenshots** in Claude Code's working tree (untracked, not committed): `qa/one-add/plates-dinner-vs-untyped-2026-11-28.png` (before) and `qa/one-add/plates-after-plain-tile-2026-11-28.png` (after).
-
-## Report only, no change: meal → ingredients
-**Today: no, it is not automatic.** Putting a meal on This Week only writes its placement; nothing touches the list.
-
-- **The path:** every "put it on This Week" door ends in `handlePlanMeal` → `planMeal` → `appendPlacement`, which writes one `meal_placements` row and no list rows. The doors are:
-  - the Meals feeder's + on a card;
-  - the recipe view's "+ Add to This Week";
-  - a meal saved from the feeder's new-meal doors (`planOnSave`).
-- **What the user sees:** the card shows "This week" in the feeder, and on This Week the card shows "Add to list" (Home's ON DECK the same, if it's first). The ingredients are not on the list.
-- **What actually adds them:** only an explicit "Add to list", on the This Week card, Home's ON DECK, the recipe view's add, or "add to the list →" in This Week's subtitle (all of the week's planned meals). All of these use `handleAddMealToList` → the `add_meal_to_list` RPC.
-  - If any ingredient is flagged on hand, the on-hand prompt asks first ("Buy it" / "I have it").
-  - "I have everything" makes the RPC stamp the placement ready (064), shown as "Everything's in".
-- **So "Build or choose a meal, and we'll add what it needs."** on Home and the empty List **overstates today's behaviour.** The app adds what it needs only after the "Add to list" tap.
-
-**What automatic adding would take: client-only, no migration.** The RPC already does what's needed.
-- **What the RPC already does:**
-  - `add_meal_to_list(p_meal_id, p_servings, p_cycle_id, p_include_on_hand_ids)` adds the meal's ingredients.
-  - It **skips on-hand ingredients by default**, the same as the prompt's default "I have it".
-  - With nothing left to add, it stamps the placement ready (064).
-  - `addMealToList` in the client also places the meal if it isn't on This Week yet.
-- **Plan = add (client):** in the plan handler, a meal with ingredients goes through `addMealToList(mealId, 1, [])` with no prompt. That adds the non-on-hand items, or reads "Everything's in" when all are on hand. A meal with no ingredients keeps `planMeal`, so it doesn't read "Everything's in". The card then lands as "✓ On the list" straight away.
-- **"Review ingredients" under ⋯ (client):** a ⋯ item on the This Week card (and in the recipe view) that opens a review sheet.
-  - The existing `OnHandPrompt` covers adding the skipped on-hand items: "Buy it" re-runs `addMealToList` with those `includeIds`, and the RPC adds only those.
-  - For taking off an item that went on, the sheet would list the meal's live rows with the List's own −. Both writes exist today.
-- **Things that would need deciding (all client-side):**
-  - **Un-planning from the feeder:** the ✓ only un-plans a meal in the "planned" state; it is inert once its items are on the list. With automatic add, every planned meal would be "on the list" at once. Un-plan would need to become "Remove (and take its items off the list)", the existing `skipMeal(id, { zeroList: true })` that This Week's ⋯ Remove uses.
-  - **The toast:** one per plan ("Tacos added · N to get"), or folded into Done's "N added".
-  - **Offline:** the RPC needs a connection. An offline plan would need the off-grid message the feeders already use, or a queue, which doesn't exist for meals today.
+## The items (flag on; flag off unchanged throughout)
+1. **`d0b5713`: adding a meal adds its ingredients.**
+   - **The doors:** the Meals feeder's +, the recipe view's "+ Add to This Week", and a meal saved from the feeder.
+   - **The path:** all go through the existing `add_meal_to_list`. It puts the meal on This Week and adds every ingredient not marked on hand (on-hand ones skipped). With nothing left to buy, it reads "Everything's in".
+   - A meal with no ingredients stays "Nothing to shop for". Client-only, no migration.
+   - **Fix found by the harness: `d1137ad`.** A meal whose ingredients were all on hand, planned fresh, never reached "Everything's in". The server's ready stamp needs the meal already on This Week, and the add put it there afterwards. It is now placed first, then added.
+2. **`2673856`: un-planning from the feeder** (the ✓ tapped again) takes the meal off This Week and takes off only what that meal added that is still unchecked.
+   - **The list can reliably tell.** `add_meal_to_list` records each meal's share per item (migration 039, `list_item_meals.quantity_contributed`). The existing remove path (`takeMealOffList`, used by This Week's ⋯ Remove) subtracts exactly that share.
+   - So an item another planned meal needs, or a person added, keeps the rest of its quantity and stays. Checked or in-cart items are never touched; only their link to the meal is released.
+   - The ✓ now un-plans in every state. Before, it worked only while nothing was on the list, and with automatic adding that would leave no way back.
+   - **Fix found by the harness: `65eaa1f`.** Deleting a meal from its recipe view, opened from the Meals feeder, left the feeder hidden, along with the bottom nav, until a reload. It came from my move onto the full-screen layer.
+3. **`b9a41c9`: feedback.** Done is plain again.
+   - **The subtitle** arrives as "What do we need?" / "What sounds good?" (no counts). After adds this visit it becomes, in teal after a small outlined check-circle, "N item(s) added" / "N meal(s) added" (singular at 1). Undos count down to the arrival line at 0.
+   - **The toasts on close:** "N added" for items; "N meals added · M items on the list" for meals, where M is the items those meals actually put on the list (an un-plan takes its meal's items out of M). With M = 0 (all on hand) it reads "N meals added" alone.
+   - **The "Option 3" mockup** was neither in the repo nor on `origin/handoff`, so the line follows your description.
+4. **`fdc511f`: offline.** If the app is offline when a meal is planned (its connectivity hold, or the browser reports offline), the meal goes on This Week with nothing added, and its card shows the existing "Add to list" button. That's the only case for the button, besides meals planned before this change.
+   - **Caveat:** with no network at all, the plan itself fails, as it always has; nothing about planning is queued offline.
+5. **`ecebf87`: Review ingredients**, under the This Week card's ⋯ for a meal with on-hand ingredients.
+   - It opens the existing on-hand sheet. "Buy it" items go on the list through the **list's own add**, not `add_meal_to_list`, because that adds every other ingredient again.
+   - **The compromise:** recording one item's link to the meal needs a server change. The app can't write that link itself (the security rules deliberately block that update, migration 041), and the server function has no "only these items" mode.
+   - **So a reviewed item behaves like one a person added:** un-planning leaves it, and its row carries no meal tag. Also, a meal at "Everything's in" stays at that mark after a Review add.
+   - **The exact version:** a small migration (an "only these ingredient ids" mode on `add_meal_to_list`). Your call.
+6. **`125d68e`: "Cooked it" back beside "✓ Everything's in",** on This Week and on Home's ON DECK (with Switch). It no longer lives only in ⋯; ⋯ keeps Cooked it for a planned meal, as before. "On the list" still has no button.
+- **Harness only: `24a6f7f`.** `week-card.js` now expects the mark straight away; the "Add to list" → mark sequence is the offline case.
 
 ## Tests
-- **Jest:** 1409/1409 with the flag off, and 1409/1409 with the flag on (ASK + ONE_ADD), at the head. Each commit was also run in both builds.
-  - `AllOnHand`, `CookedItSurfaces` and `ReplayLabels` now state both builds. With the flag off they still expect the chip, the line, See on list, Wrap up → and Cooked it.
-  - New tests render the This Week card and Home's ON DECK in every state, and the untyped placeholder.
-- **Harness against the preview (`94ce65f`, Cody Test, dev DB):**
+- **Jest:** 1412/1412 with the flag off, and 1412/1412 with the flag on (ASK + ONE_ADD), at the head. Each commit was also run in both builds.
+- **Harness against the preview (`24a6f7f`, Cody Test, dev DB):**
 
 | Check | Result |
 |---|---|
-| `done-count` (new: plain Done, add 3 → "Done · 3", undo 1 → "Done · 2", the "2 added" toast) | 5/5 |
-| `week-card` (new, see below) | 6/6 |
-| `home-card` (adds the highlight, and sand with items) | 10/10 |
-| `meal-sections` (adds: the untyped slot is empty and the same size as a Dinner card's) | 15/15 |
-| `feeder-rail` (adds: Done empties the Meals search) | 17/17 |
-| `new-meal` (adds the Meals feeder's "Done · 1" → "Done · 2") | 13/13 |
+| `meal-auto-add` (new, see below) | 24/24 |
+| `done-count` (updated: Done plain; "What do we need?" → "3 items added" → undo → "2 items added"; "2 added"; a new visit's arrival; 1 → back) | 7/7 |
+| `week-card` (updated) | 4/4 |
+| `new-meal` (the meal progress line; the feeder back after a delete) | 14/14 |
+| `feeder-rail` | 17/17 |
 | `return-add` | 14/14 |
+| `home-card` | 10/10 |
+| `meal-sections` | 15/15 |
 | `landscape-tip` | 11/11 |
 | `rail-rule` | 12/12 |
 | `picker-frame` | 12/12 |
 | `results-titles` | 9/9 |
 | `one-add` | 35/35 |
 
-  - **`week-card` steps:** a real meal made in the Meals feeder with one ingredient. On This Week: "Add to list" alone. Home's ON DECK: the same. After the tap: "✓ On the list", no button, on both. The DB read back. Tidied through ⋯ Remove and the app's Delete.
-  - The "Everything's in" state is covered by Jest.
+- **`meal-auto-add` steps** (real meals made through the app):
+  1. **All on hand:** nothing added; "✓ Everything's in" with Cooked it on This Week and Home's ON DECK.
+  2. **Plan:** Apples goes on the list; the card shows "✓ On the list"; the line reads "1 meal added".
+  3. **Un-plan:** its own Apples leaves; the line goes back to the arrival line; no toast.
+  4. **Shared and person-added, in one visit:** a person adds Carrots, then B (Bananas), then C (Apples, Bananas, Carrots). The line reads "1 meal added" → "2 meals added". Un-plan C → Apples leaves; Bananas (B's) and Carrots (the person's) stay at 1; the line reads "1 meal added". Re-plan C → "2 meals added" and its items are back. The toast reads "2 meals added · 4 items on the list".
+  5. **Offline** (the tab's browser reports offline): planned, nothing added, "Add to list"; back online the tap adds it and the mark shows.
+  6. **Review:** Garlic + Lemons with Lemons on hand → Garlic added, Lemons skipped. ⋯ "Review ingredients" → the sheet lists Lemons → Buy it → Lemons on the list, Garlic not added twice.
+  - Everything was tidied through the app's own Remove and Delete.
+  - **Not covered by the harness:** the "checked items stay" rule is covered by the existing remove path's tests, and the recipe view door is covered by Jest's source check, as it uses the same handler.
 - **Cleanup read-back:** Cody Test House has 0 live list rows, 0 live meals, 0 open placements, 0 harness catalog items and 0 open trips.
-  - One local `week-card` run (before the search fix) left one test meal ("Week Card zz81q"), with its placement already closed and nothing on the list.
-  - I soft-deleted it as the test account (`meals.deleted_at`, the write the app's own Delete makes) and read it back as gone.
+  - Two failed local runs had left test meals with nothing on the list ("Auto Shared/Three omkh", "Auto All In wk5f").
+  - I closed their placements and soft-deleted them as the test account (the same writes the app's Remove and Delete make) and read them back as gone.
 
-## Pushed (exp/one-add only, 45d8d29 → 94ce65f)
-- `546c5d2` Done · N
-- `4fca49f` This Week cards
-- `8179e1a` Meals Done empties its search
-- `6526e5b` Home ON DECK
-- `b100cde` Home highlight
-- `94ce65f` untyped placeholder
+## Pushed (exp/one-add only, 94ce65f → 24a6f7f)
+- `d0b5713` add ingredients
+- `2673856` un-plan
+- `65eaa1f` feeder back after a delete
+- `b9a41c9` feedback
+- `fdc511f` offline
+- `ecebf87` Review ingredients
+- `125d68e` Cooked it
+- `d1137ad` all-on-hand fix
+- `24a6f7f` harness
 
-The pre-push range was exactly these six commits.
+The pre-push range was exactly these nine commits.
 
 ## dev / main (git ls-remote)
 - **Before:** dev `36d197b`, main `e93b265`
