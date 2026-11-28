@@ -1497,12 +1497,12 @@ export function OnDeckCard({
   const busy = busyMealId === m.id || switching;
   const canSwitch = boardMeals.length >= 2;
   // ONE ADD (flag on): This Week's rule — ingredients not on the list → "Add to list" (no "Not on the list yet");
-  // once added → the teal mark "On the list" / "Everything's in" and no button. Switch stays beside either.
+  // once added → the teal mark "On the list" (no button) or "Everything's in" + Cooked it. Switch stays beside any.
   const oaMark = ONE_ADD_ENABLED && !st.noShop && (st.toBuy || st.ready) ? (st.ready ? "Everything's in" : "On the list") : null;
   const showLine = !(ONE_ADD_ENABLED && (st.canAdd || st.toBuy || st.ready));
   let primary = null;
-  if (st.noShop || st.toBuy || oaMark) {
-    primary = null;                                   // D9 / D4 (one add: the mark instead)
+  if (st.noShop || st.toBuy || (oaMark && !st.ready)) {
+    primary = null;                                   // D9 / D4 (one add: the mark instead; Ready keeps Cooked it)
   } else if (st.ready || !st.canAdd) {
     // Ready (row 3) — and a planned meal with nothing to shop for (row 6).
     primary = <button type="button" className="deck-primary teal" disabled={busy} onClick={() => { if (!busy) onCooked(m.id); }}>Cooked it</button>;
@@ -2199,8 +2199,8 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                 )}
               </div>
               {/* ONE ADD (flag on): ingredients not on the list → the "Add to list" button alone (no "Not on the list
-                  yet"); once added → the teal mark "On the list", or "Everything's in" (all on hand, or wrapped up),
-                  and no button (Cooked it moves into ⋯). A planned meal with no ingredients keeps its line. */}
+                  yet"); once added → the teal mark "On the list" and no button; "Everything's in" (all on hand, or
+                  wrapped up) → the mark AND Cooked it beside it. A planned meal with no ingredients keeps its line. */}
               {line && !(ONE_ADD_ENABLED && (canAdd || toBuy || ready)) && <div className="board-line">{line}</div>}
               {ONE_ADD_ENABLED && (toBuy || ready) && (
                 <div className="board-mark"><span className="board-mark-tick" aria-hidden="true">✓</span>{ready ? "Everything's in" : "On the list"}</div>
@@ -2236,7 +2236,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     onClick={(e) => { e.stopPropagation(); onSeeList(); }}
                   >{rc.bought >= rc.total ? "Wrap up →" : "See on list"}</button>
                 )}
-                {ready && !ONE_ADD_ENABLED && (
+                {ready && (
                   <button
                     type="button"
                     className="board-cook"
@@ -2264,7 +2264,7 @@ export function PlanBoard({ meals, rows, placements, mealById, cookedIds, onOpen
                     onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onSkip(m.id, toBuy); }}>
                     {toBuy ? "Remove (and take its items off the list)" : "Remove"}
                   </button>
-                  {(planned || (ONE_ADD_ENABLED && ready)) && (
+                  {planned && (
                     <button type="button" role="menuitem" disabled={busy}
                       onClick={(e) => { e.stopPropagation(); setMenuFor(null); if (!busy) onCooked(m.id); }}>Cooked it</button>
                   )}

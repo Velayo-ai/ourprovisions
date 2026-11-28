@@ -93,9 +93,9 @@ describe("a stamped placement, everywhere", () => {
   test("all on hand → Everything's in, Cooked it on the board card, Home's deck and the recipe view", () => {
     const s = surfaces(inputs({ readyAt: "2026-10-19T23:30:00Z" }));
     expect(s.st).toMatchObject({ ready: true, toBuy: false, planned: false });
-    // One add: the teal mark "Everything's in" and no button at rest (Cooked it under ⋯).
-    expect(s.board).toEqual(ONE_ADD_ENABLED ? { cooked: 0, line: undefined, mark: "✓Everything's in" } : { cooked: 1, line: "Everything's in — go cook", mark: undefined });
-    expect(s.deck).toBe(ONE_ADD_ENABLED ? 0 : 1);   // one add: Home's deck shows the mark, not Cooked it
+    // One add: the teal mark "Everything's in" with Cooked it beside it (flag off: the line + Cooked it).
+    expect(s.board).toEqual(ONE_ADD_ENABLED ? { cooked: 1, line: undefined, mark: "✓Everything's in" } : { cooked: 1, line: "Everything's in — go cook", mark: undefined });
+    expect(s.deck).toBe(1);   // Home's deck: Cooked it (one add: beside the mark)
     expect(s.recipe).toEqual({ cooked: 1, main: "Cooked it", status: "✓ On This Week · Everything's in" });
   });
   test("Remove from This Week on a stamped meal is the board's Remove with toBuy false → the view goes to D", () => {

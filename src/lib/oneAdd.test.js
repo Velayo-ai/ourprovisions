@@ -324,10 +324,10 @@ describe("This Week cards: the button before, the teal mark after", () => {
       expect(html).not.toContain("See on list"); expect(html).not.toContain("2 to buy"); expect(html).not.toContain("board-chip");
     } else { expect(html).toContain("See on list"); expect(html).toContain("2 to buy"); }
   });
-  test("all in: \"Everything's in\", no button at rest (Cooked it under ⋯) (flag on)", () => {
+  test("all in: \"Everything's in\" with Cooked it beside it (flag on); flag off: the line + Cooked it", () => {
     const html = board(meal("c", "Soup", [1]), { placements: { c: { readyAt: "2026-11-28T00:00:00Z" } } });
-    if (ONE_ADD_ENABLED) { expect(html).toContain("✓</span>Everything&#x27;s in</div>"); expect(html).not.toContain('class="board-cook"'); }
-    else { expect(html).toContain('class="board-cook"'); }
+    expect(html).toContain('class="board-cook"');
+    if (ONE_ADD_ENABLED) expect(html).toContain("✓</span>Everything&#x27;s in</div>");
   });
   test("a planned meal with no ingredients keeps \"Nothing to shop for\"", () => {
     expect(board(meal("d", "Pizza", []))).toContain("Nothing to shop for");
@@ -355,7 +355,7 @@ describe("Home's ON DECK card: This Week's rule", () => {
     if (ONE_ADD_ENABLED) {
       expect(a).not.toContain("Not on the list yet"); expect(a).not.toContain("deck-mark");
       expect(b).toContain("✓</span>On the list</div>"); expect(b).not.toContain("2 to buy");
-      expect(c).toContain("✓</span>Everything&#x27;s in</div>"); expect(c).not.toContain(">Cooked it</button>");
+      expect(c).toContain("✓</span>Everything&#x27;s in</div>"); expect(c).toContain(">Cooked it</button>");
     } else {
       expect(a).toContain("Not on the list yet"); expect(b).toContain("2 to buy"); expect(c).toContain(">Cooked it</button>");
     }
