@@ -81,6 +81,15 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
     expect(APP).toContain('plan: { label: "Add a meal to this week", run: openMealsAdd }');
     expect(APP).not.toContain('setPlanScreen("library"); goToDoor("plan"); };');
   });
+  test("+ New meal: beside the first section header, and the no-match row of a search; both plan the meal on save", () => {
+    expect(APP).toContain('<button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button>');
+    expect(APP).toContain('<span className="pick-main"><span className="pick-name">Create <b>“{newName}”</b> as a new meal</span></span>');
+    expect(APP).toContain('onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true })');
+    expect(APP).toContain('if (mealSheet.mode === "create" && mealSheet.planOnSave && typeof ok === "string") await handlePlanMeal(ok);');
+    expect(APP).toContain('const [name, setName] = useState(isEdit ? (meal?.name || "") : initialName);');
+    // flag off: the library screen keeps its + New
+    expect(APP).toContain('<HeaderAction verb="new" label="Create a new meal" onClick={() => setMealSheet({ mode: "create", meal: null })} />');
+  });
   test("the feeder's Done returns to This Week with N added", () => {
     expect(APP).toContain("<ItemSearchView search={feeder.search} onClose={feeder.onDone}");
     expect(APP).toContain("feeder={{ search: mealsFeeder, onDone: closeMealsFeeder,");

@@ -3540,6 +3540,10 @@ export function RecipeView({ meal, state, members, cookCount, lastCookedAt, cook
 // it; only the cards scroll. The lens keeps every piece of its own state. Its two sheets (Set type, View &
 // filter) render beside the layer in the app's tree and the layer steps aside while they are up, as the List
 // feeder does for its sheets. Without `feeder` the lens is the Plan library screen, unchanged.
+// feeder.onNewMeal(name) — the feeder's own "+ New meal" doors, as the List feeder's "+ New item": beside the
+// first section header ("Our meals", or the rail's word while one is picked), and the no-match row of a
+// search, "Create “{query}” as a new meal" (the name prefilled). The host opens the new-meal sheet and, on
+// save, puts the meal on This Week.
 function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate, onOpen, isSignedIn, stages, madeBefore, householdId, members, textSizeIdx, onSetOccasion, feeder = null }) {
   const [query, setQuery] = useState("");
   const [libView, toggleLibView] = useLibraryView(textSizeIdx);
@@ -3636,6 +3640,13 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
     );
     return feeder ? feederShell(node) : node;
   }
+  // The no-match row (one add): a search that finds nothing offers to make it.
+  const newName = query.trim();
+  const createRow = feeder?.onNewMeal && isSignedIn && newName ? (
+    <button type="button" className="pick-row pick-create meal-create" onMouseDown={keepFocus} onClick={() => feeder.onNewMeal(newName)}>
+      <span className="pick-main"><span className="pick-name">Create <b>“{newName}”</b> as a new meal</span></span>
+    </button>
+  ) : null;
   if (meals.length === 0) {
     const node = (
       <div style={{ padding: "32px 0 0" }}>
@@ -3650,7 +3661,7 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         <div style={{ marginTop: "6px" }}>{createTile}</div>
       </div>
     );
-    return feeder ? feederShell(node) : node;
+    return feeder ? feederShell(<>{createRow}{node}</>) : node;
   }
 
   // The search row's two tools; ONE toggle (D8): it shows the view you'd switch TO and names the action.
@@ -3774,8 +3785,15 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
         </button>
       </>
     );
+    // The first section header, with "+ New meal" beside it (the List feeder's aisle header + "+ New item").
+    const head = feeder.onNewMeal && isSignedIn ? (
+      <div className="pick-aisle meal-head">
+        <span className="pick-aisle-name">{occ === "all" ? "Our meals" : OCCASION_PILL[occ]}</span>
+        <button type="button" className="pick-aisle-new" onClick={() => feeder.onNewMeal("")}>＋ New meal</button>
+      </div>
+    ) : null;
     return feederShell(
-      <div className="lib oneadd">{verbs}{emptyLine}{cards}{createTile}</div>,
+      <div className="lib oneadd">{verbs}{head}{shown.length === 0 && createRow ? createRow : emptyLine}{cards}{createTile}</div>,
       aside,
       <div className="feeder-rail meals-rail">{activeChips}{rail}</div>,
       sheets,
@@ -3883,9 +3901,10 @@ function GoodForChips({ value, onChange, style }) {
 // received meal lands through landDraft like any outside draft (source "gift"), under a banner and the
 // giver's note (not editable, never saved on the meal). The doors stay folded, Cancel reads "Not for us"
 // and Save reads "Add to our meals". The receipt and the photo copy run in the caller after the save.
-export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null }) {
+// initialName (one add): a create opened from the Meals feeder's search ("Create “{query}” as a new meal") starts named.
+export function MealSheet({ mode, meal, catalogMap, categories, saving, deleting, onCancel, onCommit, onDelete, onCreateCatalogItem, onRegisterCategory, onRequestSuggestion, onRequestImport, isSignedIn, gift = null, initialName = "" }) {
   const isEdit = mode === "edit";
-  const [name, setName] = useState(isEdit ? (meal?.name || "") : "");
+  const [name, setName] = useState(isEdit ? (meal?.name || "") : initialName);
   const [rows, setRows] = useState(() =>
     isEdit
       ? (meal?.meal_ingredients || []).map((mi) => ({
@@ -7073,6 +7092,9 @@ function ProvisionsApp({ scrollRootRef }) {
         const gift = mealSheet.mode === "create" ? mealSheet.gift || null : null;
         setMealSheet(null);
         await loadMeals();   // reflect the new name/count on PLAN immediately
+        // One add: a meal made from the Meals feeder's "+ New meal" doors goes on This Week (its card then shows
+        // the teal "This week"). createMeal returned the new row's id.
+        if (mealSheet.mode === "create" && mealSheet.planOnSave && typeof ok === "string") await handlePlanMeal(ok);
         // An edit can take dropped ingredients off Shop (updateMeal): re-read provenance so
         // the card's "{n} left" and the board's counts move in the same beat.
         if (mealSheet.mode === "edit") await refreshProvenance();
@@ -7082,7 +7104,7 @@ function ProvisionsApp({ scrollRootRef }) {
     } finally {
       setMealSaving(false);
     }
-  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance, finishGiftArrival]);
+  }, [mealSheet, materializePendingIngredients, updateMeal, createMeal, loadMeals, refreshProvenance, finishGiftArrival, handlePlanMeal]);
   // Delete the recipe itself. Zeroing of its still-pending list items
   // happens inside deleteMeal (bought items untouched, shared ingredients
   // left for the meals that still need them) — the sheet only drives it.
@@ -11195,6 +11217,9 @@ function ProvisionsApp({ scrollRootRef }) {
         .meals-feeder .meals-rail .lib-active { margin: 0 0 8px; }
         .meals-feeder .meals-rail .lib-hint { margin: 2px 0 4px; }
         .meals-feeder .ask-search-list { padding-top: 8px; padding-bottom: 96px; }
+        /* The first section header + "+ New meal" (the List feeder's aisle header), and the no-match create row. */
+        .meals-feeder .meal-head { margin: 4px 0 10px; }
+        .meals-feeder .meal-create { margin: 0 0 12px; }
         .cat-pill.occ { padding: 9px 16px; flex: none; }
         .pick-toast { position: absolute; left: 16px; right: 16px; bottom: 16px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px;
                       padding: 14px 16px; border-radius: 14px; background: #2C1A0E; color: #FBF4EC; font: 400 calc(14px * var(--op-text-scale)) 'Lato', sans-serif;
@@ -13227,6 +13252,7 @@ function ProvisionsApp({ scrollRootRef }) {
           onRequestImport={requestRecipeImport}
           isSignedIn={isSignedIn}
           gift={mealSheet.mode === "create" ? mealSheet.gift || null : null}
+          initialName={mealSheet.mode === "create" ? mealSheet.name || "" : ""}
         />
       )}
 
@@ -13918,7 +13944,8 @@ function ProvisionsApp({ scrollRootRef }) {
           up (a meal's recipe view, the new-meal sheet, a gift, the on-hand prompt). */}
       {ONE_ADD_ENABLED && MEALS_ENABLED && (
         <MealsLens
-          feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt) }}
+          feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(recipeView || mealSheet || giftArrival || thankYou || onHandPrompt),
+            onNewMeal: (name) => setMealSheet({ mode: "create", meal: null, name, planOnSave: true }) }}
           textSizeIdx={textSizeIdx}
           onSetOccasion={handleSetOccasion}
           meals={libraryCards}
