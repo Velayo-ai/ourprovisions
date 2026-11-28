@@ -1,8 +1,7 @@
 // One add: This Week's meal card — the button before, the teal mark after (flag on). On the dev DB as the test
 // account, through the app only: a meal is made in the Meals feeder (search → "Create “…” as a new meal", one
-// ingredient: Apples; saved, it goes on This Week). On This Week its card shows only "Add to list" — no
-// Planned chip, no "Not on the list yet"; after the tap: the teal mark "On the list" and no button. Home's ON DECK
-// card follows the same rule (Switch shows only with 2+ meals on This Week; here there is one).
+// ingredient: Apples; saved, it goes on This Week and its ingredients on the list). On This Week its card shows the
+// teal mark "On the list" and no button — no Planned chip, no "Not on the list yet"; Home's ON DECK the same.
 // Tidy: ⋯ → Remove (and take its items off the list), then the app's delete (recipe → Edit → Delete meal);
 // the DB read back: no live meal, no open placement, nothing on the list. Flag-on build, signed in; local or `remote`.
 // ("Everything's in" — the all-on-hand / wrapped-up state — is Jest's: src/lib/oneAdd.test.js.)
@@ -60,17 +59,13 @@ const NAME = `Week Card ${Date.now().toString(36).slice(-5)}`;
     made = true;
     await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.click()); await sleep(1500);
 
-    let c = await card();
-    check("on This Week, ingredients not on the list: \"Add to list\" alone — no Planned chip, no \"Not on the list yet\"",
-      !!c && !c.chip && !c.line && !c.mark && JSON.stringify(c.buttons) === JSON.stringify(["Add to list"]), JSON.stringify(c));
-    let d = await deck();
-    check("Home's ON DECK, not on the list: \"Add to list\" — no \"Not on the list yet\" (label ON DECK)", !!d && d.eyebrow === "ON DECK" && d.title === NAME && !d.status && !d.mark && d.buttons.join() === "Add to list", JSON.stringify(d));
-    await p.evaluate((name) => [...document.querySelectorAll(".board-card")].find((e) => e.querySelector(".board-card-title")?.textContent.trim() === name)?.querySelector(".board-lock")?.click(), NAME);
-    await sleep(3500);
-    c = await card();
-    check("after Add to list: the teal mark \"On the list\", no button", !!c && c.mark === "✓On the list" && c.buttons.length === 0 && !c.chip && !c.line, JSON.stringify(c));
-    d = await deck();
-    check("Home's ON DECK, added: the teal mark \"On the list\", no button", !!d && d.mark === "✓On the list" && !d.status && d.buttons.length === 0, JSON.stringify(d));
+    // Adding a meal adds its ingredients: the card has the mark at once (the "Add to list" button is the offline /
+    // pre-change case — local/meal-auto-add.js checks it).
+    const c = await card();
+    check("planned → its ingredients on the list at once: the teal mark \"On the list\", no button, no Planned chip, no \"Not on the list yet\"",
+      !!c && c.mark === "✓On the list" && c.buttons.length === 0 && !c.chip && !c.line, JSON.stringify(c));
+    const d = await deck();
+    check("Home's ON DECK: the same mark, no button (label ON DECK)", !!d && d.eyebrow === "ON DECK" && d.title === NAME && d.mark === "✓On the list" && !d.status && d.buttons.length === 0, JSON.stringify(d));
     const db = await dbRead();
     check("the DB: the meal on This Week, its ingredient on the list", db.live === 1 && db.open === 1 && db.listRows >= 1, JSON.stringify(db));
   } catch (e) {
