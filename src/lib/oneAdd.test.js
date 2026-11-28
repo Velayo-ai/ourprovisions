@@ -352,6 +352,20 @@ describe("Home's ON DECK card: This Week's rule", () => {
   });
 });
 
+describe("un-planning from the feeder takes off only this meal's unchecked share", () => {
+  test("the ✓ un-plans in every state; with the flag on it goes through skipMeal's zeroList path (takeMealOffList)", () => {
+    const fn = APP.slice(APP.indexOf("  const handleUnplanMeal = useCallback(async (mealId) => {"), APP.indexOf("  const handleSetOccasion = useCallback("));
+    expect(fn).toMatch(/if \(ONE_ADD_ENABLED\) \{\s+await skipMeal\(mealId, \{ zeroList: true \}\);/);
+    expect(fn).toContain("const ok = await skipMeal(mealId, { zeroList: false });");   // flag off: as before
+    const lc = require("fs").readFileSync(require("path").join(__dirname, "../components/LibraryCards.js"), "utf8");
+    expect(lc).toContain('{stage === "planned" || stage === "toBuy" || stage === "ready" ? (');
+    // takeMealOffList: pending rows lose this meal's recorded share; bought rows are never touched
+    const ml = require("fs").readFileSync(require("path").join(__dirname, "mealLinks.js"), "utf8");
+    expect(ml).toContain('const pending = links.filter((r) => r.list_items?.status === "pending");');
+    expect(ml).toContain("p_delta: -contributed,");
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {

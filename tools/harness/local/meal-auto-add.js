@@ -1,6 +1,9 @@
 // One add: adding a meal adds its ingredients (flag on). On the dev DB as the test account, through the app only.
 //   plan     a meal made in the Meals feeder (one ingredient, Apples; saved → planned) → Apples is on the list,
 //            the This Week card shows the teal mark "On the list", the feeder card "This week"
+//   unplan   the feeder's ✓ again → Apples (that meal's alone) leaves. Then meal B (Bananas) is planned, a person
+//            adds Carrots (List feeder, return), meal C (Apples, Bananas, Carrots) is planned → Apples 1, Bananas 2,
+//            Carrots 2; un-plan C → Apples leaves, Bananas (B's) and Carrots (the person's) stay at 1
 // Tidy: ⋯ Remove (and take its items off the list) → the app's delete (recipe → Edit → Delete meal); the DB read
 // back: no live meal of the walk's names, no open placement, nothing on the list. Flag-on build, signed in;
 // local or `remote`. Needs an empty list in the test house to start.
@@ -15,6 +18,9 @@ let checks = 0, fails = 0;
 const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok ? "PASS" : "FAIL"}  ${name}${detail ? "  — " + detail : ""}`); };
 const tag = Date.now().toString(36).slice(-4);
 const A = `Auto Add ${tag}`;
+const B = `Auto Shared ${tag}`;
+const C = `Auto Three ${tag}`;
+const nav = require("../oneadd-nav.js");
 
 (async () => {
   const b = await connect(); const p = await firstPage(b);
@@ -27,6 +33,7 @@ const A = `Auto Add ${tag}`;
   const openMeals = async () => {
     if (await p.$(".meals-feeder.open")) return;
     if (!/#\/plan/.test(p.url())) { await p.goto(BASE + "#/plan", { waitUntil: "networkidle2" }); await sleep(2500); }
+    await p.waitForSelector('.plan-ctl .hdr-action[aria-label="Add a meal to this week"], .plan-welcome-add', { visible: true, timeout: 15000 });
     await p.evaluate(() => (document.querySelector('.plan-ctl .hdr-action[aria-label="Add a meal to this week"]') || document.querySelector(".plan-welcome-add"))?.click());
     await p.waitForSelector(".meals-feeder.open", { visible: true, timeout: 10000 }); await sleep(600);
   };
@@ -63,6 +70,7 @@ const A = `Auto Add ${tag}`;
   }, name);
 
   try {
+    await p.goto(BASE + "#/plan", { waitUntil: "networkidle2" }); await p.reload({ waitUntil: "networkidle2" }); await sleep(2500);
     // ── plan: the ingredients go on the list ──
     await createMeal(A, ["Apples"]);
     await clearField(".meals-feeder .item-search-field input"); await sleep(400);
@@ -73,6 +81,34 @@ const A = `Auto Add ${tag}`;
     await closeMeals();
     const wc = await weekCard(A);
     check("plan: the This Week card shows the teal mark \"On the list\", no button", !!wc && wc.mark === "✓On the list" && wc.buttons.length === 0, JSON.stringify(wc));
+
+    // ── un-plan: only this meal's own unchecked items leave ──
+    const unplan = async (name) => {
+      await openMeals();
+      await clearField(".meals-feeder .item-search-field input");
+      await p.type(".meals-feeder .item-search-field input", name, { delay: 10 }); await sleep(500);
+      await p.evaluate((name) => [...document.querySelectorAll(".meals-feeder .lib-gcard, .meals-feeder .lib-row")].find((e) => (e.querySelector(".lib-gname, .lib-rname")?.textContent || "") === name)?.querySelector("button.lib-plan.on")?.click(), name);
+      await sleep(3500);
+      await clearField(".meals-feeder .item-search-field input");
+    };
+    await unplan(A);
+    rows = await listRows();
+    const fa = await feederCard(A);
+    check("un-plan (the ✓ again): its own item (Apples) leaves the list, the card is back to +", !rows.Apples && !!fa && !fa.sub && !fa.tick, JSON.stringify({ rows, fa }));
+    await createMeal(B, ["Bananas"]);
+    await closeMeals();
+    // a person adds Carrots: the List feeder, typed, return
+    await nav.openFeeder(p, BASE);
+    await p.type(".item-picker .item-search-field input", "Carrots", { delay: 12 }); await sleep(400);
+    await p.keyboard.press("Enter"); await sleep(2500);
+    await nav.closeFeeder(p);
+    await p.goto(BASE + "#/plan", { waitUntil: "networkidle2" }); await sleep(2000);
+    await createMeal(C, ["Apples", "Bananas", "Carrots"]);
+    rows = await listRows();
+    check("set-up: Apples 1 (C), Bananas 2 (B + C), Carrots 2 (a person + C)", rows.Apples?.qty === 1 && rows.Bananas?.qty === 2 && rows.Carrots?.qty === 2, JSON.stringify(rows));
+    await unplan(C);
+    rows = await listRows();
+    check("un-plan C: Apples (C's alone) leaves; Bananas (B needs it) and Carrots (a person added it) stay, at 1", !rows.Apples && rows.Bananas?.qty === 1 && rows.Carrots?.qty === 1, JSON.stringify(rows));
   } catch (e) {
     check("the walk ran to the end", false, e.message);
   } finally {
@@ -95,6 +131,10 @@ const A = `Auto Add ${tag}`;
       } catch (e) { log(`tidy ${name}: ${e.message}`); }
     }
     await closeMeals();
+    // the person's Carrots (and anything else the walk left) off the list, through the app's own RPC
+    for (const r of await rest("GET", `list_items?select=catalog_item_id&household_id=eq.${HH}&quantity=gt.0&status=neq.bought&deleted_at=is.null`)) {
+      await restFor(p).rpc("remove_list_item", { p_household_id: HH, p_catalog_item_id: r.catalog_item_id }).catch((e) => log(`unlist: ${e.message}`));
+    }
     const live = await rest("GET", `meals?select=id&household_id=eq.${HH}&deleted_at=is.null`);
     const open = await rest("GET", `meal_placements?select=meal_id&household_id=eq.${HH}&cooked_at=is.null&skipped_at=is.null`);
     const lr = await rest("GET", `list_items?select=id&household_id=eq.${HH}&quantity=gt.0&status=neq.bought&deleted_at=is.null`);

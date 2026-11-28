@@ -178,10 +178,12 @@ function OnBoardLine({ stage, canPlan }) {
   const ready = stage === "ready" ? "Ready" : stage === "toBuy" ? "To buy" : null;
   return <span className="lib-onsub">This week{ready && <span className="lib-onsub-ready"> · {ready}</span>}</span>;
 }
+// The ✓ un-plans in every state (one add: a planned meal's ingredients are on the list at once, so "planned only"
+// would leave no way back) — App's handleUnplanMeal takes off only what this meal put on the list.
 function OneAddMark({ stage, busy, onUnplan, meal }) {
   return (
     <>
-      {stage === "planned" ? (
+      {stage === "planned" || stage === "toBuy" || stage === "ready" ? (
         <button type="button" className="lib-plan on" disabled={busy} aria-labelledby="lib-verb-unplan"
           onClick={() => { if (!busy) onUnplan(meal.id); }}><CheckGlyph /></button>
       ) : (

@@ -6786,15 +6786,26 @@ function ProvisionsApp({ scrollRootRef }) {
   // as a preference; the stamp is cleared by the next re-plan). closePlacement
   // is optimistic, so the pill, the week line and the queue move in the same
   // render as the tap; a failure reloads the rows and the card comes back.
+  // One add (flag on): un-planning from the feeder (the ✓ tapped again) takes the meal off This Week AND off the list —
+  // only what THIS meal put there: skipMeal's zeroList path (takeMealOffList, src/lib/mealLinks.js) subtracts this
+  // meal's recorded share (039 list_item_meals.quantity_contributed) from each still-pending row, so an item another
+  // planned meal needs, or a person added, keeps the rest of its quantity and stays; a row this meal alone put there
+  // comes off. Checked / in-cart rows are never touched (their link to the meal is released). The feeder's progress
+  // line is the feedback, so no toast.
   const handleUnplanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
+      if (ONE_ADD_ENABLED) {
+        await skipMeal(mealId, { zeroList: true });
+        await refreshProvenance();
+        return;
+      }
       const ok = await skipMeal(mealId, { zeroList: false });
       if (ok) showToast(`${mealById[mealId]?.name || "Meal"} removed from your week`);
     } finally {
       setPlanningMealId(null);
     }
-  }, [skipMeal, showToast, mealById]);
+  }, [skipMeal, showToast, mealById, refreshProvenance]);
   // "Set meal type" (visual v2 Amendment A5): OPTIMISTIC — the card shows the
   // new tint, icon and meta word at once; the narrow write follows; on failure
   // the one meal reverts and the quiet toast says so. On success the quiet
