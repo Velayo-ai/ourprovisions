@@ -68,7 +68,7 @@ const feederBar = (p, sel) => p.evaluate((sel) => {
   const feeder = mealsFeeder;
   check("the Meals feeder's title = the List feeder's", !!feeder && feeder.text === "Add to this week" && feeder.font === listFeeder.font && feeder.color === listFeeder.color, `${feeder && feeder.font} vs ${listFeeder.font}`);
   check("both feeders: the dark Done pill, a rule under the bar, a status line",
-    feeder.done === listFeeder.done && feeder.rule === listFeeder.rule && listFeeder.rule.startsWith("solid") && !!feeder.status && /^What do we need\? · \d+ items?$/.test(listFeeder.status || ""),
+    feeder.done === listFeeder.done && feeder.rule === listFeeder.rule && listFeeder.rule.startsWith("solid") && !!feeder.status && listFeeder.status === "What do we need?",
     JSON.stringify({ meals: [feeder.done, feeder.rule, feeder.status], list: [listFeeder.done, listFeeder.rule, listFeeder.status] }));
   const all = Object.values(out).filter(Boolean);
   check("all three results rows read", all.length === 3, Object.keys(out).filter((k) => !out[k]).join(","));

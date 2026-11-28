@@ -235,6 +235,9 @@ export const ITEM_SEARCH_CSS = `
 .item-search-titlebar.has-sub { padding: 10px 16px; }
 .item-search-titletext { min-width: 0; }
 .item-search-sub { margin-top: 4px; font: 400 calc(14px * var(--op-text-scale, 1)) 'Lato', sans-serif; color: #8a7a60; }
+/* One add: the progress line (FeederProgress) — teal, a small outlined check-circle before the text. */
+.item-search-sub .feeder-progress { display: inline-flex; align-items: center; gap: 6px; color: #0A776D; font-weight: 700; }
+.item-search-sub .feeder-progress-ico { flex: none; }
 .ask-search-done.item-search-done { min-height: 44px; padding: 0 22px; border-radius: 999px; background: #3A281C; color: #FFFDF9; }
 .item-search-field { position: relative; padding: 14px 16px 6px; }
 .item-search-glass { position: absolute; left: 30px; top: 50%; margin-top: 4px; transform: translateY(-50%); color: #9A7350; display: flex; pointer-events: none; }

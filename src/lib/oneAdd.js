@@ -52,9 +52,17 @@ export function staplesHintVisit(storage) {
 
 // R2: Done → a toast "N added", only when something was added this visit.
 export const addedToastText = (n) => (n > 0 ? `${n} added` : null);
-// The live count on the feeders' Done pill: "Done · N" after the first add (adds this visit, minus undos),
-// plain "Done" at 0.
-export const doneCountLabel = (n) => (n > 0 ? `Done · ${n}` : "Done");
+// THE FEEDERS' PROGRESS (Done stays plain): the subtitle reads the arrival line ("What do we need?" / "What sounds
+// good?") until something is added this visit, then "N item(s) added" / "N meal(s) added" in teal after a small
+// outlined check-circle; undos count down, back to the arrival line at 0.
+export const progressText = (n, noun) => (n > 0 ? `${n} ${noun}${n === 1 ? "" : "s"} added` : null);
+// The Meals feeder's toast on close: "N meals added · M items on the list" (M = the items those meals actually put
+// on the list; singular at 1); with nothing bought for them (all on hand, no ingredients), the meals alone.
+export function mealsAddedToast(n, m) {
+  if (!(n > 0)) return null;
+  const meals = `${n} meal${n === 1 ? "" : "s"} added`;
+  return m > 0 ? `${meals} · ${m} item${m === 1 ? "" : "s"} on the list` : meals;
+}
 
 // The List feeder's search create (Dan's household test): a typed name with no exact match is added from a
 // "+ Add '{query}'" row whose aisle is GUESSED from the household's own catalog and shown as a pill that can

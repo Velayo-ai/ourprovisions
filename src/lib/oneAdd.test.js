@@ -279,15 +279,25 @@ describe("Home's list card (flag on)", () => {
   });
 });
 
-describe("Done · N, both feeders", () => {
-  const { doneCountLabel } = require("./oneAdd");
-  test("plain Done at 0, Done · N after the first add; the toast on close stays", () => {
-    expect(doneCountLabel(0)).toBe("Done");
-    expect(doneCountLabel(1)).toBe("Done · 1");
-    expect(doneCountLabel(2)).toBe("Done · 2");
-    expect(APP).toContain("doneLabel={feeder ? doneCountLabel(fresh.size) : null}");
-    expect(APP).toContain("doneLabel={doneCountLabel(feeder.added || 0)}");
+describe("the feeders' progress: Done plain, the subtitle counts, the toasts", () => {
+  const { progressText, mealsAddedToast } = require("./oneAdd");
+  test("the arrival line at 0, then \"N item(s) / meal(s) added\" (singular at 1); Done stays plain", () => {
+    expect(progressText(0, "item")).toBeNull();
+    expect(progressText(1, "item")).toBe("1 item added");
+    expect(progressText(2, "item")).toBe("2 items added");
+    expect(progressText(1, "meal")).toBe("1 meal added");
+    expect(progressText(2, "meal")).toBe("2 meals added");
+    expect(APP).toContain('subtitle={feeder ? <FeederProgress n={fresh.size} noun="item" arrival="What do we need?" /> : null}');
+    expect(APP).toContain('subtitle={<FeederProgress n={feeder.added || 0} noun="meal" arrival="What sounds good?" />}');
+    expect(APP).not.toContain("doneLabel={");
+  });
+  test("toasts: \"N added\" for items; \"N meals added · M items on the list\" for meals", () => {
+    expect(mealsAddedToast(0, 3)).toBeNull();
+    expect(mealsAddedToast(1, 1)).toBe("1 meal added · 1 item on the list");
+    expect(mealsAddedToast(2, 5)).toBe("2 meals added · 5 items on the list");
+    expect(mealsAddedToast(1, 0)).toBe("1 meal added");
     expect(APP).toContain("if (ONE_ADD_ENABLED) { const text = addedToastText(added); if (text) showToast(text); }");
+    expect(APP).toContain("const text = mealsAddedToast(addedIds.length, addedIds.reduce((sum, id) => sum + (mealsItemsRef.current.get(id) || 0), 0));");
   });
 });
 
@@ -518,7 +528,7 @@ describe("R5 — one add control, one ✓ mark (this build's flag)", () => {
     expect(APP).toContain('.pick-frow.on .pick-sub { color: #0A776D; font-weight: 700; }');
     const rowSrc = APP.slice(APP.indexOf("const feederRow = (item) => {"), APP.indexOf("  const row = (item) => {"));
     expect(rowSrc).not.toContain('pick-mark on');
-    expect(APP).toContain('subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}');
+    expect(APP).toContain('subtitle={feeder ? <FeederProgress n={fresh.size} noun="item" arrival="What do we need?" /> : null}');
     expect(APP).toContain('aria-label="One fewer"');
     expect(APP).toContain('if (status === "on" && fresh.has(item.id) && !feeder) {');
   });

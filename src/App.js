@@ -72,7 +72,7 @@ import { onViewportSettled } from './lib/viewportSettled';
 import { holdFillCss } from './hooks/useHold';
 import { hintForNextVisit, beginHintVisit } from './lib/landscapeHint';
 import { ASK_ENABLED, ASK_FLAG_MARKER, ONE_ADD_ENABLED, ONE_ADD_FLAG_MARKER } from './lib/featureFlags';
-import { routeView, helmDoors, listStatusLine, addedToastText, doneCountLabel, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap,
+import { routeView, helmDoors, listStatusLine, addedToastText, progressText, mealsAddedToast, askPill, staplesHintVisit, STAPLES_HINT, guessAisle, railCategoryTap,
   LANDSCAPE_TIP, LANDSCAPE_TIP_HOME, landscapeTipRead, landscapeTipDue, landscapeTipShown, landscapeTipUsed, landscapeTipEligible } from './lib/oneAdd';
 import { trace } from '@opentelemetry/api';
 import { emitAskEvent, emitAskTimedEvent } from './lib/askTelemetry';
@@ -891,6 +891,20 @@ function SearchResultsList({ query, results, hiddenMatch, onReveal, renderRow, c
 //   rail, sheetButton, hint: nodes (R3 / R4) · suspended: bool
 //   wrapRow(item, node) — Browse's swipe (Hide / Edit / ★ Staple) around a row · isStaple(name) — the row's ★
 //   closeRef — set to this view's close, so App can end the visit (an Ask pill hands over to a run) }
+// THE FEEDERS' PROGRESS LINE (one add): the subtitle under the title — the arrival line, or after adds this visit a
+// small teal outlined check-circle and "N item(s) added" / "N meal(s) added" (progressText). Done stays plain.
+function FeederProgress({ n, noun, arrival }) {
+  const text = progressText(n, noun);
+  if (!text) return arrival;
+  return (
+    <span className="feeder-progress" role="status">
+      <svg className="feeder-progress-ico" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <circle cx="8" cy="8" r="6.6" /><path d="M5.2 8.2l1.9 1.9 3.7-4" />
+      </svg>
+      {text}
+    </span>
+  );
+}
 // A feeder's section header (one add): the section's name and its link — the List's "+ New {aisle} item"
 // (that aisle prefilled), the Meals feeder's "+ New {type} meal" (that type prefilled) — or the short form
 // ("+ New item" / "+ New meal") when the long one would not fit beside the name on one line (measured, and
@@ -1114,9 +1128,8 @@ export function ListPicker({ search, items, statusOf, hiddenFor, onAdd, onCreate
   );
   return (
     <ItemSearchView search={search} onClose={close} query={query} onQuery={setQuery} label="Add to our list" title="Add to our list"
-      subtitle={feeder ? `What do we need? · ${items.length} ${items.length === 1 ? "item" : "items"}` : null}
+      subtitle={feeder ? <FeederProgress n={fresh.size} noun="item" arrival="What do we need?" /> : null}
       onSubmit={feeder ? submit : null}
-      doneLabel={feeder ? doneCountLabel(fresh.size) : null}
       input={{ className: "modal-input", placeholder: feeder ? "Type anything, or scroll and tap" : "Type, or scroll and tap", name: "list-pick-search", ariaLabel: "Type to find an item" }}
       listTestId="list-picker" className={`item-picker${feeder ? " feeder" : ""}`}
       fieldAside={feeder ? (
@@ -3801,9 +3814,9 @@ function MealsLens({ meals, loading, onPlan, onUnplan, planningMealId, onCreate,
       {/* Done empties the search, as the List feeder's does (the lens's other state — filters, view — stays). */}
       <ItemSearchView search={feeder.search} onClose={() => { setQuery(""); feeder.onDone(); }} query={query} onQuery={setQuery}
         label="Add to this week" title="Add to this week"
-        subtitle={`What sounds good? · ${meals.length} ${meals.length === 1 ? "meal" : "meals"}`}
+        subtitle={<FeederProgress n={feeder.added || 0} noun="meal" arrival="What sounds good?" />}
         input={{ className: "modal-input", placeholder: "Type a meal, or scroll and tap", name: "meals-feeder-search", ariaLabel: "Search our meals" }}
-        listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools} doneLabel={doneCountLabel(feeder.added || 0)}
+        listTestId="meals-feeder" className="meals-feeder" fieldAside={aside} tools={tools}
         suspended={!!(feeder.suspended || typeFor || draft)}>
         {body}
       </ItemSearchView>
@@ -6731,11 +6744,14 @@ function ProvisionsApp({ scrollRootRef }) {
   // ingredient not marked on hand (on-hand ones are skipped — the on-hand prompt's own default), and with nothing
   // left to buy stamps the placement ready (064: "Everything's in"). A meal with no ingredients adds nothing and is
   // not stamped (064 needs ingredients), so it reads "Nothing to shop for" as before. Returns the items added.
+  // The items each meal planned this feeder visit put on the list (the toast's M); an un-plan forgets its meal.
+  const mealsItemsRef = useRef(new Map());
   const handlePlanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
       if (ONE_ADD_ENABLED) {
         const count = await addMealToList(mealId, 1, []);
+        mealsItemsRef.current.set(mealId, count || 0);
         await refreshProvenance();   // the card's mark ("On the list" / "Everything's in") in the same beat
         return count || 0;
       }
@@ -6755,11 +6771,14 @@ function ProvisionsApp({ scrollRootRef }) {
   const mealsVisitRef = useRef(null);
   const openMealsFeeder = () => {
     mealsVisitRef.current = new Set(onBoardIds);
+    mealsItemsRef.current = new Map();
     mealsFeeder.show();
   };
   const closeMealsFeeder = () => {
     const before = mealsVisitRef.current || new Set();
-    const text = addedToastText([...onBoardIds].filter((id) => !before.has(id)).length);
+    const addedIds = [...onBoardIds].filter((id) => !before.has(id));
+    // "N meals added · M items on the list" — M from the plans themselves (add_meal_to_list's count)
+    const text = mealsAddedToast(addedIds.length, addedIds.reduce((sum, id) => sum + (mealsItemsRef.current.get(id) || 0), 0));
     mealsVisitRef.current = null;
     mealsFeeder.hide();
     if (text) showToast(text);
@@ -6797,6 +6816,7 @@ function ProvisionsApp({ scrollRootRef }) {
     try {
       if (ONE_ADD_ENABLED) {
         await skipMeal(mealId, { zeroList: true });
+        mealsItemsRef.current.delete(mealId);
         await refreshProvenance();
         return;
       }
@@ -14289,7 +14309,7 @@ function ProvisionsApp({ scrollRootRef }) {
           feeder={{ search: mealsFeeder, onDone: closeMealsFeeder, suspended: !!(rvMeal || mealSheet || giftArrival || thankYou || onHandPrompt),
             onNewMeal: (name, occasion = []) => setMealSheet({ mode: "create", meal: null, name, occasion, planOnSave: true }),
             onAskGalley: () => setMealSheet({ mode: "create", meal: null, name: "", planOnSave: true, galley: true }),
-            // Done · N: the meals on This Week now that weren't when the feeder opened (an un-plan takes one back off).
+            // The progress line's N: the meals on This Week now that weren't when the feeder opened (an un-plan takes one back off).
             added: mealsFeeder.open && mealsVisitRef.current ? [...onBoardIds].filter((id) => !mealsVisitRef.current.has(id)).length : 0 }}
           textSizeIdx={textSizeIdx}
           onSetOccasion={handleSetOccasion}

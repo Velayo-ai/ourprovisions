@@ -67,7 +67,7 @@ const HEADED = `Harness Stew ${stamp}`;
     await save(); made.push(SEARCHED);
     const cb = await cardFor(SEARCHED);
     check("(b) on save: back on the layer, the card shows the teal \"This week\" and the ✓", cb.layer && cb.card && cb.sub === "This week" && cb.tick && !cb.plus, JSON.stringify(cb));
-    check("the Meals feeder's Done counts it: \"Done · 1\"", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.textContent.trim())) === "Done · 1", await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.textContent.trim()));
+    check("the Meals feeder's progress: \"1 meal added\" (Done stays plain)", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-sub")?.textContent.trim())) === "1 meal added" && (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.textContent.trim())) === "Done", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-sub")?.textContent.trim())));
     const db1 = await dbRead(SEARCHED);
     check("(b) the DB: one live meal of that name, on This Week (an open placement)", db1.live === 1 && db1.open === 1, JSON.stringify(db1));
 
@@ -95,7 +95,7 @@ const HEADED = `Harness Stew ${stamp}`;
     await save(); made.push(HEADED);
     const ca = await cardFor(HEADED);
     check("(a) on save: the card shows the teal \"This week\" and the ✓", ca.layer && ca.card && ca.sub === "This week" && ca.tick, JSON.stringify(ca));
-    check("… and the second: \"Done · 2\"", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.textContent.trim())) === "Done · 2", await p.evaluate(() => document.querySelector(".meals-feeder .item-search-done")?.textContent.trim()));
+    check("… and the second: \"2 meals added\"", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-sub")?.textContent.trim())) === "2 meals added", (await p.evaluate(() => document.querySelector(".meals-feeder .item-search-sub")?.textContent.trim())));
     const db2 = await dbRead(HEADED);
     check("(a) the DB: one live meal of that name, on This Week", db2.live === 1 && db2.open === 1, JSON.stringify(db2));
   } catch (e) {
