@@ -65,7 +65,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   await sleep(1200);
   // The Meals feeder is the List feeder's layer: its title bar, Done, and the field (focused on open).
   const feederMeals = await p.evaluate(() => { const v = document.querySelector(".meals-feeder.open"); return v && { title: v.querySelector(".item-search-title")?.textContent.trim(), done: !!v.querySelector(".item-search-done"), search: v.querySelector(".item-search-field input")?.placeholder || null, focused: document.activeElement === v.querySelector(".item-search-field input") }; });
-  check("V4 + Add opens the Meals feeder on the List feeder's layer: \"Add to this week\" + Done, the field focused", opened && !!feederMeals && feederMeals.title === "Add to this week" && feederMeals.done && feederMeals.search === "Search our meals…" && feederMeals.focused, JSON.stringify(feederMeals));
+  check("V4 + Add opens the Meals feeder on the List feeder's layer: \"Add to this week\" + Done, the field focused", opened && !!feederMeals && feederMeals.title === "Add to this week" && feederMeals.done && feederMeals.search === "Type a meal, or scroll and tap" && feederMeals.focused, JSON.stringify(feederMeals));
   await shot(p, "one-add-meals-feeder");
   // V6 the Meals feeder's View & filter
   if (await p.$('.meals-feeder .pick-tool[aria-label^="View and filter"]')) {
@@ -85,7 +85,7 @@ const check = (name, ok, detail = "") => { checks++; if (!ok) fails++; log(`${ok
   const focus = await p.evaluate(() => document.activeElement?.name || null);
   check("V3 the field has the focus on the first tap (keyboard up)", focus === "list-pick-search", String(focus));
   const head = await p.evaluate(() => ({ title: document.querySelector(".item-picker .item-search-title")?.innerText.trim(), ph: document.querySelector('.item-picker input[name="list-pick-search"]')?.placeholder, aisles: [...document.querySelectorAll(".item-picker .pick-aisle-name")].map((e) => e.innerText.trim()).slice(0, 4), newItem: !!document.querySelector(".item-picker .pick-aisle-new"), tool: !!document.querySelector(".item-picker .pick-tool") }));
-  check("R2 title \"Add to our list\", \"Search our provisions…\"", head.title === "Add to our list" && head.ph === "Search our provisions…", JSON.stringify(head));
+  check("R2 title \"Add to our list\", \"Type anything, or scroll and tap\"", head.title === "Add to our list" && head.ph === "Type anything, or scroll and tap", JSON.stringify(head));
   check("R2 aisle sections, each with + New item; the layout toggle", head.aisles.length > 0 && head.newItem && head.tool, JSON.stringify(head.aisles));
   await shot(p, "one-add-feeder-list");
 
