@@ -6750,6 +6750,13 @@ function ProvisionsApp({ scrollRootRef }) {
     setPlanningMealId(mealId);
     try {
       if (ONE_ADD_ENABLED) {
+        // Offline (the connectivity hold, or the browser says so): plan it only — its card then shows "Add to list",
+        // today's behaviour, for when the signal is back. The button appears only then (or for meals planned before).
+        if (offline || (typeof navigator !== "undefined" && navigator.onLine === false)) {
+          await planMeal(mealId);
+          mealsItemsRef.current.set(mealId, 0);
+          return 0;
+        }
         const count = await addMealToList(mealId, 1, []);
         mealsItemsRef.current.set(mealId, count || 0);
         await refreshProvenance();   // the card's mark ("On the list" / "Everything's in") in the same beat
@@ -6761,7 +6768,7 @@ function ProvisionsApp({ scrollRootRef }) {
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, addMealToList, refreshProvenance, showToast, mealById]);
+  }, [planMeal, addMealToList, refreshProvenance, showToast, mealById, offline]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
   // One add (R2): the Meals feeder is the library on the List feeder's full-screen layer (ItemSearchView),
   // "Add to this week". It opens INSIDE the tap (show(): visible + focused synchronously, so the keyboard rises

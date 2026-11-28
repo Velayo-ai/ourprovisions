@@ -6,6 +6,8 @@
 //            Apples leaves, Bananas (B's) and Carrots (the person's) stay at 1; C again → its items back
 //   progress the subtitle: arrival "What sounds good?" → "1 meal added" → back on un-plan; "1 meal added" → "2 meals
 //            added" → un-plan → "1 meal added" → "2 meals added"; Done plain; the toast on close "2 meals added · 4 items on the list"; none when nothing was added
+//   offline  the browser reports offline (navigator.onLine false, this tab) when a meal is saved → planned only, its
+//            card shows "Add to list"; back online, the tap adds it and the mark shows
 // Tidy: ⋯ Remove (and take its items off the list) → the app's delete (recipe → Edit → Delete meal); the DB read
 // back: no live meal of the walk's names, no open placement, nothing on the list. Flag-on build, signed in;
 // local or `remote`. Needs an empty list in the test house to start.
@@ -22,6 +24,7 @@ const tag = Date.now().toString(36).slice(-4);
 const A = `Auto Add ${tag}`;
 const B = `Auto Shared ${tag}`;
 const C = `Auto Three ${tag}`;
+const D = `Auto Offline ${tag}`;
 const nav = require("../oneadd-nav.js");
 
 (async () => {
@@ -143,6 +146,22 @@ const nav = require("../oneadd-nav.js");
     check("plan: the This Week card shows the teal mark \"On the list\", no button", !!wc && wc.mark === "✓On the list" && wc.buttons.length === 0, JSON.stringify(wc));
     const t2 = await toastNow();
     check("close: \"2 meals added · 4 items on the list\" (B's 1 + C's 3)", t2 === "2 meals added · 4 items on the list", t2);
+    await sleep(2800);
+    // ── offline: the browser says offline when the meal is planned → planned only; its card shows "Add to list" ──
+    const applesBefore = (await listRows()).Apples?.qty || 0;   // C (still planned) has Apples on the list
+    await p.evaluate(() => { window.__onLine = Object.getOwnPropertyDescriptor(Navigator.prototype, "onLine"); Object.defineProperty(Navigator.prototype, "onLine", { get: () => false, configurable: true }); });
+    await createMeal(D, ["Apples"]);
+    await clearField(".meals-feeder .item-search-field input"); await sleep(400);
+    rows = await listRows();
+    await p.evaluate(() => { if (window.__onLine) Object.defineProperty(Navigator.prototype, "onLine", window.__onLine); });
+    await closeMeals();
+    let wd = await weekCard(D);
+    check("offline: the meal is planned but nothing is added (Apples unchanged); its card shows \"Add to list\"", (rows.Apples?.qty || 0) === applesBefore && !!wd && !wd.mark && wd.buttons.join() === "Add to list", JSON.stringify({ applesBefore, rows, wd }));
+    await p.evaluate((name) => [...document.querySelectorAll(".board-card")].find((e) => e.querySelector(".board-card-title")?.textContent.trim() === name)?.querySelector(".board-lock")?.click(), D);
+    await sleep(3500);
+    wd = await weekCard(D);
+    rows = await listRows();
+    check("… back online, \"Add to list\" adds it (Apples +1), the teal mark", rows.Apples?.qty === applesBefore + 1 && !!wd && wd.mark === "✓On the list" && wd.buttons.length === 0, JSON.stringify({ applesBefore, rows, wd }));
     await sleep(2800);
   } catch (e) {
     check("the walk ran to the end", false, e.message);
