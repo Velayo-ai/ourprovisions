@@ -100,6 +100,19 @@ describe("R1/R2 — Plan is This Week only; Meals opens from + Add as the Meals 
   });
 });
 
+describe("Home's list card (flag on)", () => {
+  test("empty: Our list is empty + \"+ Add items\" (the List feeder); with items: N things to get + Open list", () => {
+    expect(APP).toContain('const title = empty ? "Our list is empty"');
+    expect(APP).toContain('`${open} thing${open === 1 ? "" : "s"} to get`');
+    expect(APP).toContain('<button type="button" className="deck-primary add" onClick={onAdd}>+ Add items</button>');
+    expect(APP).toContain('<button type="button" className="deck-primary" onClick={onOpen}>Open list</button>');
+    expect(APP).toContain('onAdd: () => { goToDoor("list"); openPicker("home"); },');
+    // flag off: the list line, as today
+    expect(APP).toContain("{!listCard && <HomeListLine {...list} />}");
+    expect(APP).toContain("listCard={ONE_ADD_ENABLED ? {");
+  });
+});
+
 describe("R3 — one Ask pill", () => {
   const a = (id, label) => ({ id, label });
   test("0 → none, 1 → by name, 2+ → the chooser", () => {

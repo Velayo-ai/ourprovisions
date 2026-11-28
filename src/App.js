@@ -1236,7 +1236,10 @@ function Helm({ view, onChange, badgeCount, compact = false, onPlus = null }) {
 // and nothing renders under the date until it is true: the three essentials
 // appear together, never one popping in above another, and never a state the
 // data then contradicts (a To-buy meal reading as Planned for a beat).
-function Home({ firstName, ready, deck, list, budget }) {
+// ONE ADD (flag on; Dan's household test with Helen and Elly): `listCard` puts the list's results card near the
+// top, in the meal card's style, in place of the list line: empty → "Our list is empty" + "+ Add items" (the
+// List feeder); with items → "N things to get" + "Open list". Without it, Home is today's.
+function Home({ firstName, ready, deck, list, budget, listCard = null }) {
   const hour = new Date().getHours();
   const part = hour < 12 ? "morning" : hour < 17 ? "afternoon" : "evening";
   const dateLine = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
@@ -1246,8 +1249,9 @@ function Home({ firstName, ready, deck, list, budget }) {
       <div className="home-date">{dateLine}</div>
       {ready && (
         <>
+          {listCard && <HomeListCard {...listCard} />}
           <OnDeckCard {...deck} />
-          <HomeListLine {...list} />
+          {!listCard && <HomeListLine {...list} />}
           {budget && <HomeBudgetLine {...budget} />}
         </>
       )}
@@ -1407,6 +1411,28 @@ export function OnDeckCard({
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+// THE LIST CARD (one add) — the deck's card, eyebrow "List". total = live rows, open = unchecked (the Helm's
+// badge number), checked = in the cart. Counts sit in .deck-title (masked); the buttons carry fixed copy only.
+function HomeListCard({ total, open, checked, onAdd, onOpen }) {
+  const empty = !total;
+  const title = empty ? "Our list is empty"
+    : open > 0 ? `${open} thing${open === 1 ? "" : "s"} to get`
+    : `All ${checked} in the cart`;
+  return (
+    <section className="deck home-list-card" aria-label="Our list">
+      <div className="deck-eyebrow">List</div>
+      <div className="deck-body">
+        <h3 className="deck-title">{title}</h3>
+      </div>
+      <div className="deck-actions">
+        {empty
+          ? <button type="button" className="deck-primary add" onClick={onAdd}>+ Add items</button>
+          : <button type="button" className="deck-primary" onClick={onOpen}>Open list</button>}
+      </div>
     </section>
   );
 }
@@ -12505,6 +12531,13 @@ function ProvisionsApp({ scrollRootRef }) {
               onOther: () => setNoShopSheet({ kind: "other", name: "", fromMealIds: [] }),
               afterglow: boardAfterglow,   // the same "How was it?" + "Add a meal photo" as the board (no thumbnail on Home)
             }}
+            // One add: the list's card near the top. + Add items opens the List feeder inside the tap (its keyboard
+            // rule), on List, so Done lands on Our list.
+            listCard={ONE_ADD_ENABLED ? {
+              total: totalItems, open: totalItems - checkedCount, checked: checkedCount,
+              onAdd: () => { goToDoor("list"); openPicker("home"); },
+              onOpen: () => goToDoor("list"),
+            } : null}
             list={{
               openCount: totalItems - checkedCount,
               checkedCount,
