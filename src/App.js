@@ -6725,16 +6725,27 @@ function ProvisionsApp({ scrollRootRef }) {
   // names the meal and teaches what "+" means. (A once-per-session "Added to
   // This Week" toast was tried in the 2026-10-16 polish and reverted the same
   // day — the design chat hadn't known A7 existed.)
+  // ONE ADD — adding a meal adds its ingredients (flag on). Every "put it on This Week" door (the Meals feeder's +,
+  // the recipe view's "+ Add to This Week", a meal saved from the feeder) goes through the existing add-ingredients
+  // path, addMealToList → add_meal_to_list: it places the meal (appendPlacement when it isn't open), adds every
+  // ingredient not marked on hand (on-hand ones are skipped — the on-hand prompt's own default), and with nothing
+  // left to buy stamps the placement ready (064: "Everything's in"). A meal with no ingredients adds nothing and is
+  // not stamped (064 needs ingredients), so it reads "Nothing to shop for" as before. Returns the items added.
   const handlePlanMeal = useCallback(async (mealId) => {
     setPlanningMealId(mealId);
     try {
+      if (ONE_ADD_ENABLED) {
+        const count = await addMealToList(mealId, 1, []);
+        await refreshProvenance();   // the card's mark ("On the list" / "Everything's in") in the same beat
+        return count || 0;
+      }
       const ok = await planMeal(mealId);
-      // One add (R5): in the Meals feeder the card's ✓ "This week" is the confirmation; Done says "N added".
-      if (ok && !ONE_ADD_ENABLED) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
+      if (ok) showToast(`${mealById[mealId]?.name || "Meal"} added to your week ✓`);
+      return 0;
     } finally {
       setPlanningMealId(null);
     }
-  }, [planMeal, showToast, mealById]);
+  }, [planMeal, addMealToList, refreshProvenance, showToast, mealById]);
   const onBoardIds = useMemo(() => new Set(boardMeals.map((m) => m.id)), [boardMeals]);
   // One add (R2): the Meals feeder is the library on the List feeder's full-screen layer (ItemSearchView),
   // "Add to this week". It opens INSIDE the tap (show(): visible + focused synchronously, so the keyboard rises
