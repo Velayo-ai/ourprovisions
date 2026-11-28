@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { flushSync, createPortal } from "react-dom";
+import { COLUMN_MIN_WIDTH, COLUMN_MAX_WIDTH } from "../nav";
 
 // ItemSearchView — a full-screen search layer over the page: one input, Done, an optional count line,
 // and one scroller for the results. Extracted from NewShelfSheet (SPEC_one_list R7 Commit A, 2026-11-26)
@@ -16,6 +17,13 @@ import { flushSync, createPortal } from "react-dom";
 //
 // PORTALED TO document.body (IMG_6888): inside an iOS overflow-scrolling container a fixed box is clipped /
 // out-stacked. As a body child at z 2100 nothing can cover it.
+//
+// IN THE DESKTOP FRAME it stays a body child (nothing in the tree moves), but it takes the frame's bounds: the
+// app is the centred phone-width .phone-frame there (top/bottom 24px, COLUMN_MAX_WIDTH wide, radius 22), and a
+// body child would otherwise cover the whole window. Only on a desktop: past COLUMN_MIN_WIDTH AND a fine
+// pointer that can hover. A phone, in either orientation (a sideways phone is past COLUMN_MIN_WIDTH too), never
+// matches, so every rule here for iOS is untouched there. (2026-11-27: the layer escaped the frame since
+// SPEC_one_list's picker, prod included.)
 //
 // THE VIEW FOLLOWS THE VISIBLE AREA (IMG_6907): while open, on visualViewport resize AND scroll, at most
 // once per frame, the view's top is visualViewport.offsetTop and its height visualViewport.height (also
@@ -222,6 +230,16 @@ export const ITEM_SEARCH_CSS = `
 .ask-search-done.item-search-done { min-height: 44px; padding: 0 22px; border-radius: 999px; background: #3A281C; color: #FFFDF9; }
 .item-search-field { position: relative; padding: 14px 16px 6px; }
 .item-search-glass { position: absolute; left: 30px; top: 50%; margin-top: 4px; transform: translateY(-50%); color: #9A7350; display: flex; pointer-events: none; }
+/* The desktop frame (see the header): the frame's box, its radius, nothing hanging out of it. !important on the
+   top / height because the visible-area follow writes them inline (a desktop pinch-zoom can set it). */
+@media (min-width: ${COLUMN_MIN_WIDTH}px) and (hover: hover) and (pointer: fine) {
+  .ask-search { top: 24px !important; bottom: 24px !important; height: auto !important;
+    left: max(24px, calc(50% - ${COLUMN_MAX_WIDTH / 2}px)); right: max(24px, calc(50% - ${COLUMN_MAX_WIDTH / 2}px));
+    border-radius: 22px; overflow: hidden; overflow: clip; box-shadow: 0 26px 60px -14px rgba(20,10,4,.55); }
+  /* No desktop scrollbar inside the frame, as .phone-scroll (it reads as a phone). */
+  .ask-search-list { scrollbar-width: none; }
+  .ask-search-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
+}
 .item-search-field input { flex: 1 1 auto; min-width: 0; margin: 0; height: 52px; padding-left: 42px; border-radius: 16px; border: 1.5px solid #d8bf94; background: #fff;
   font-size: calc(17px * var(--op-text-scale, 1)); }
 `;
